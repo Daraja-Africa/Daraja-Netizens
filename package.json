@@ -1,0 +1,18 @@
+{
+  "name": "daraja-netizens",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @daraja/api\" \"npm run dev --workspace @daraja/web\"",
+    "build": "npm run build --workspace @daraja/api && npm run build --workspace @daraja/web",
+    "dev:api": "npm run dev --workspace @daraja/api",
+    "dev:web": "npm run dev --workspace @daraja/web",
+    "lint": "npm run lint --workspace @daraja/api && npm run lint --workspace @daraja/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

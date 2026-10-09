@@ -1,0 +1,107 @@
+services:
+  web:
+    image: jitsi/web:stable
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      ENABLE_AUTH: '1'
+      AUTH_TYPE: jwt
+      JWT_APP_ID: ${JWT_APP_ID}
+      JWT_APP_SECRET: ${JWT_APP_SECRET}
+      JWT_ACCEPTED_ISSUERS: ${JWT_ISSUER}
+      JWT_ACCEPTED_AUDIENCES: ${JWT_AUDIENCE}
+      ENABLE_LETSENCRYPT: '1'
+      ENABLE_HTTP_REDIRECT: '1'
+      LETSENCRYPT_DOMAIN: ${JITSI_HOST}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+      JICOFO_COMPONENT_SECRET: ${JICOFO_COMPONENT_SECRET}
+      JIGASI_XMPP_PASSWORD: ${JIGASI_XMPP_PASSWORD}
+      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+      JVB_TCP_HARVESTER: '1'
+      JVB_TCP_PORT: '4443'
+      JVB_STUN_SERVERS: stun.l.google.com:19302,stun1.l.google.com:19302
+      PUBLIC_URL: https://${JITSI_HOST}
+      XMPP_DOMAIN: ${JITSI_HOST}
+      XMPP_SERVER: prosody
+      TZ: UTC
+    volumes:
+      - ./web:/config
+
+  prosody:
+    image: jitsi/prosody:stable
+    restart: unless-stopped
+    environment:
+      AUTH_TYPE: jwt
+      JWT_APP_ID: ${JWT_APP_ID}
+      JWT_APP_SECRET: ${JWT_APP_SECRET}
+      JWT_ACCEPTED_ISSUERS: ${JWT_ISSUER}
+      JWT_ACCEPTED_AUDIENCES: ${JWT_AUDIENCE}
+      JWT_ALLOW_EMPTY: '0'
+      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+      JIGASI_XMPP_PASSWORD: ${JIGASI_XMPP_PASSWORD}
+      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+      PUBLIC_URL: https://${JITSI_HOST}
+      XMPP_DOMAIN: ${JITSI_HOST}
+      XMPP_AUTH_DOMAIN: auth.${JITSI_HOST}
+      XMPP_MUC_DOMAIN: muc.${JITSI_HOST}
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.${JITSI_HOST}
+      XMPP_MODULES: jwt
+      TZ: UTC
+    volumes:
+      - ./prosody:/config
+
+  jicofo:
+    image: jitsi/jicofo:stable
+    restart: unless-stopped
+    environment:
+      ENABLE_AUTO_OWNER: '1'
+      JICOFO_COMPONENT_SECRET: ${JICOFO_COMPONENT_SECRET}
+      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+      JVB_BREWERY_MUC: jvbbrewery
+      XMPP_SERVER: prosody
+      XMPP_DOMAIN: ${JITSI_HOST}
+      XMPP_AUTH_DOMAIN: auth.${JITSI_HOST}
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.${JITSI_HOST}
+      TZ: UTC
+    depends_on:
+      - prosody
+
+  jvb:
+    image: jitsi/jvb:stable
+    restart: unless-stopped
+    environment:
+      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+      JVB_PORT: 10000
+      JVB_TCP_HARVESTER: '1'
+      JVB_TCP_PORT: 4443
+      XMPP_AUTH_DOMAIN: auth.${JITSI_HOST}
+      XMPP_DOMAIN: ${JITSI_HOST}
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.${JITSI_HOST}
+      TZ: UTC
+    ports:
+      - '10000:10000/udp'
+      - '4443:4443'
+    depends_on:
+      - prosody
+
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    command: >
+      -n --fingerprint --lt-cred-mech --realm=${JITSI_HOST}
+      --external-ip=${COTURN_PUBLIC_IP}
+      --listening-port=3478
+      --min-port=49152 --max-port=65535
+      --tls-listening-port=5349
+      --cert=/etc/cert.pem --pkey=/etc/key.pem
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+      - ./certs:/etc:ro
+    ports:
+      - '3478:3478'
+      - '3478:3478/udp'
+      - '5349:5349'
+      - '5349:5349/udp'
