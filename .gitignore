@@ -6,3 +6,7 @@ apps/*/dist/
 .env.*
 .impeccable/
 .DS_Store
+
+*.tsbuildinfo
+*.d.ts
+*.js
