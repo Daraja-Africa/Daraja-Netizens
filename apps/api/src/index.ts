@@ -15,7 +15,7 @@ import {
 import { recordTelemetry } from './telemetry.js';
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: '1mb' }));
 
 const roomSchema = z.object({

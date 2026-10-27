@@ -24,12 +24,12 @@ The core workflow is: create a room, validate a participant or host, join a secu
 
 ## Capabilities and Constraints
 
-- self-hosted Jitsi deployment using Prosody, Jicofo, JVB, and TURN
+- Jitsi conferencing through `meet.jit.si` with a provider-managed media layer
 - secure room access issued via short-lived JWT tokens
 - attendance logs and session telemetry exported from client event hooks
 - PWA-first web experience with an Android-compatible deployment path
 - PostgreSQL and Redis-backed backend design for persistence and async telemetry buffering
-- public conferencing infrastructure is explicitly avoided in production due to rate limits and security constraints
+- the current zero-cost deployment uses `meet.jit.si`; a dedicated Jitsi deployment remains an optional later migration
 
 ## Brand Commitments
 

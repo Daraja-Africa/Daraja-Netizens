@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: daraja-api
+    runtime: node
+    buildCommand: npm ci && npm run build --workspace @daraja/api
+    startCommand: npm run start --workspace @daraja/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: daraja-netizens
+      - key: PUBLIC_BASE_URL
+        value: https://darajanetizens.cc.cd
+      - key: CORS_ORIGIN
+        value: https://darajanetizens.cc.cd
+      - key: JITSI_DOMAIN
+        value: meet.jit.si
+      - key: REDIS_URL
+        sync: false
