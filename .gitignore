@@ -4,6 +4,8 @@ apps/*/dist/
 *.log
 .env
 .env.*
+!.env.example
+!apps/*/.env.example
 .impeccable/
 .DS_Store
 

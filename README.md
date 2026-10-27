@@ -6,8 +6,8 @@ Daraja Netizens is a Jitsi-first enterprise video conferencing platform designed
 
 - Web app: React + Vite SPA for meeting entry, room launch, attendee check-in, and embedded Jitsi conference UI.
 - API: Express + TypeScript service that issues short-lived JWTs for room access and ingests attendance telemetry.
-- Persistence: PostgreSQL and Redis are represented in the project design and are ready to be wired to the service boundary.
-- Deployment: self-hosted Jitsi, TURN/STUN, and observability tooling are called out for the production environment.
+- Persistence: Supabase Cloud provides PostgreSQL and strict deny-by-default RLS; Redis is reserved for burst telemetry buffering.
+- Deployment: Vercel hosts the web app, Render hosts the API, and `meet.jit.si` provides the conference infrastructure.
 
 ## Quick start
 
@@ -25,13 +25,51 @@ Daraja Netizens is a Jitsi-first enterprise video conferencing platform designed
 - Copy `apps/web/.env.example` to `apps/web/.env`
 
 The web app expects the API origin and Jitsi domain to be configured for local dev.
+The API uses `SUPABASE_SERVICE_ROLE_KEY` for server-side database access. This key
+must never be added to `apps/web/.env` or exposed to the browser. RLS is enabled
+with no public policies, so direct browser access is denied by default.
 
 ## Local infrastructure
 
 - `docker-compose.yml` starts the local Postgres and Redis dependencies.
-- `infra/jitsi/docker-compose.yml` seeds the self-hosted Jitsi deployment stack for Prosody, Jicofo, JVB, and TURN.
+- `infra/jitsi/docker-compose.yml` is retained as an optional self-hosted deployment reference and is not required by the current staging/production topology.
 - `supabase/migrations/20261009_init.sql` defines the initial schema for users, meetings, attendance, and telemetry.
-- The API reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` from `apps/api/.env` and exposes `/api/v1/dashboard/summary` for the host dashboard.
+- `supabase/migrations/20261026_enable_rls.sql` enables deny-by-default RLS for the application tables.
+- The API reads `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from `apps/api/.env` and exposes `/api/v1/dashboard/summary` for the host dashboard.
+
+## Local staging checkpoint
+
+This is the safe first staging target before public DNS, VPS, TLS, or managed Redis:
+
+1. Start local dependencies:
+   `docker compose up -d postgres redis`
+2. Apply the migrations to the staging Supabase project using the Supabase CLI, or apply both SQL files from the Supabase dashboard SQL editor.
+3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `apps/api/.env`.
+4. Start the services:
+   `npm run dev`
+5. Verify `http://localhost:4000/api/health`, launch a room at `http://localhost:5173`, and confirm attendance and dashboard requests.
+
+Do not use the local development JWT fallback in production. The current
+deployment uses `meet.jit.si`; configure `JITSI_DOMAIN=meet.jit.si` consistently
+in Render and Vercel until a dedicated Jitsi provider is selected.
+
+## Vercel and Render deployment
+
+The repository includes `vercel.json` and `render.yaml` for the current
+architecture:
+
+- Vercel builds `apps/web` and serves `apps/web/dist` with an SPA fallback.
+- Render builds and runs `apps/api`, exposes `/api/health` as its health check,
+  and generates `JWT_SECRET`.
+- Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `REDIS_URL` as Render
+  secrets. Never add the service-role key to Vercel.
+- Set Vercel `VITE_API_BASE_URL` to
+  `https://api.darajanetizens.cc.cd` and `VITE_JITSI_DOMAIN` to `meet.jit.si`.
+- Set Render `CORS_ORIGIN` to `https://darajanetizens.cc.cd`.
+
+The `7-of-8` training and `4-of-6` stipend quotas require a participant
+eligibility data model and are not represented in the current initial schema;
+they should be added as a separate migration before enabling payout decisions.
 
 ## Current MVP scope
 
@@ -45,6 +83,6 @@ The web app expects the API origin and Jitsi domain to be configured for local d
 
 - Add PostgreSQL schemas for users, meetings, attendance, and telemetry
 - Connect Redis Streams for buffered high-frequency telemetry events
-- Deploy Jitsi Prosody + Jicofo + JVB + TURN behind TLS
+- Add a managed Redis connection for burst telemetry buffering
 - Add Prometheus metrics and session quality telemetry
 - Package the PWA for Android via Bubblewrap/TWA

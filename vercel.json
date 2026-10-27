@@ -1,0 +1,11 @@
+{
+  "buildCommand": "npm run build --workspace @daraja/web",
+  "installCommand": "npm ci",
+  "outputDirectory": "apps/web/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

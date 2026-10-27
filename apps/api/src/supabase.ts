@@ -9,11 +9,11 @@ export function getSupabaseClient() {
     return client;
   }
 
-  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+  if (!config.supabaseUrl || !config.supabaseServiceRoleKey) {
     return null;
   }
 
-  client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+  client = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
     auth: { persistSession: false },
   });
 
@@ -139,7 +139,7 @@ export async function getDashboardSummary() {
   };
 }
 
-export const supabaseReady = Boolean(config.supabaseUrl && config.supabaseAnonKey);
+export const supabaseReady = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
 export const dataStore = {
   postgres: supabaseReady ? 'Supabase connected' : 'Supabase credentials missing',
   redis: 'Redis Streams queue ready for burst telemetry',
