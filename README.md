@@ -33,8 +33,8 @@ with no public policies, so direct browser access is denied by default.
 
 - `docker-compose.yml` starts the local Postgres and Redis dependencies.
 - `infra/jitsi/docker-compose.yml` is retained as an optional self-hosted deployment reference and is not required by the current staging/production topology.
-- `supabase/migrations/20261009_init.sql` defines the initial schema for users, meetings, attendance, and telemetry.
-- `supabase/migrations/20261026_enable_rls.sql` enables deny-by-default RLS for the application tables.
+- `supabase/migrations/20261026165415_init_daraja_schema.sql` defines the initial schema for users, meetings, attendance, and telemetry.
+- `supabase/migrations/20261026165422_enable_deny_by_default_rls.sql` enables deny-by-default RLS for the application tables.
 - The API reads `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from `apps/api/.env` and exposes `/api/v1/dashboard/summary` for the host dashboard.
 
 ## Local staging checkpoint
