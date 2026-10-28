@@ -1,0 +1,2 @@
+-- Historical migration already applied to the linked staging project.
+-- Kept locally so Supabase migration history remains synchronized.
