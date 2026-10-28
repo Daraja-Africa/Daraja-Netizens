@@ -10,7 +10,8 @@
     "build": "npm run build --workspace @daraja/api && npm run build --workspace @daraja/web",
     "dev:api": "npm run dev --workspace @daraja/api",
     "dev:web": "npm run dev --workspace @daraja/web",
-    "lint": "npm run lint --workspace @daraja/api && npm run lint --workspace @daraja/web"
+    "lint": "npm run lint --workspace @daraja/api && npm run lint --workspace @daraja/web",
+    "test": "npm run test --workspace @daraja/api"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
