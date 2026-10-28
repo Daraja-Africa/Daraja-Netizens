@@ -140,6 +140,64 @@ export async function createQrChallenge(input: { sessionId: string; facilitatorI
   return data;
 }
 
+export async function listTrainingSessions() {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { sessions: [], source: 'memory' };
+  const { data, error } = await supabase.from('training_sessions').select('id, title, session_type, scheduled_at, status, required_for_training, required_for_stipend, week_key, is_makeup').order('scheduled_at', { ascending: true });
+  if (error) throw error;
+  return { sessions: data ?? [], source: 'supabase' };
+}
+
+export async function createTrainingSession(input: {
+  title: string;
+  sessionType: 'physical' | 'online';
+  scheduledAt: string;
+  requiredForTraining: boolean;
+  requiredForStipend: boolean;
+  weekKey?: string;
+  isMakeup: boolean;
+}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { ...input, id: crypto.randomUUID(), status: 'scheduled' };
+  const { data, error } = await supabase.from('training_sessions').insert({
+    title: input.title,
+    session_type: input.sessionType,
+    scheduled_at: input.scheduledAt,
+    required_for_training: input.requiredForTraining,
+    required_for_stipend: input.requiredForStipend,
+    week_key: input.weekKey,
+    is_makeup: input.isMakeup,
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getEligibility(userId: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return {
+    training: { attended: 0, required: 8, ratio: 0, eligible: false },
+    stipend: { attendedWeeks: 0, requiredWeeks: 4, totalWeeks: 6, ratio: 0, eligible: false },
+    source: 'memory',
+  };
+  const [sessions, attendance] = await Promise.all([
+    supabase.from('training_sessions').select('id, session_type, required_for_training, required_for_stipend, week_key, is_makeup').order('scheduled_at'),
+    supabase.from('attendance_logs').select('session_id, presence_seconds').eq('user_id', userId).gt('presence_seconds', 0),
+  ]);
+  const error = sessions.error ?? attendance.error;
+  if (error) throw error;
+  const attendedIds = new Set((attendance.data ?? []).map((row) => row.session_id).filter(Boolean));
+  const trainingSessions = (sessions.data ?? []).filter((row) => row.required_for_training);
+  const attendedTraining = trainingSessions.filter((row) => attendedIds.has(row.id)).length;
+  const stipendWeeks = new Set((sessions.data ?? [])
+    .filter((row) => row.required_for_stipend && row.session_type === 'physical' && row.week_key && attendedIds.has(row.id))
+    .map((row) => row.week_key));
+  return {
+    training: { attended: attendedTraining, required: 7, total: Math.max(trainingSessions.length, 8), ratio: Math.round((attendedTraining / Math.max(trainingSessions.length, 8)) * 100), eligible: attendedTraining >= 7 },
+    stipend: { attendedWeeks: stipendWeeks.size, requiredWeeks: 4, totalWeeks: 6, ratio: Math.round((stipendWeeks.size / 6) * 100), eligible: stipendWeeks.size >= 4 },
+    source: 'supabase',
+  };
+}
+
 export async function redeemQrChallenge(input: { token: string; studentId: string }) {
   const supabase = getSupabaseClient();
   if (!supabase) return { ok: true, source: 'memory' };
@@ -148,7 +206,7 @@ export async function redeemQrChallenge(input: { token: string; studentId: strin
   if (!challenge || challenge.redeemed_at || new Date(challenge.expires_at).getTime() < Date.now()) throw new Error('QR challenge is expired or already used');
   const { error: redeemError } = await supabase.from('qr_challenges').update({ redeemed_at: new Date().toISOString(), redeemed_by: input.studentId }).eq('id', challenge.id).is('redeemed_at', null);
   if (redeemError) throw redeemError;
-  const { error: attendanceError } = await supabase.from('attendance_logs').upsert({ meeting_id: challenge.session_id, user_id: input.studentId, joined_at: new Date().toISOString(), presence_seconds: 0, source: 'physical_qr' }, { onConflict: 'meeting_id,user_id' });
+  const { error: attendanceError } = await supabase.from('attendance_logs').upsert({ session_id: challenge.session_id, meeting_id: challenge.session_id, user_id: input.studentId, joined_at: new Date().toISOString(), presence_seconds: 1, source: 'physical_qr' }, { onConflict: 'meeting_id,user_id' });
   if (attendanceError) throw attendanceError;
   return { ok: true, source: 'supabase' };
 }

@@ -10,10 +10,13 @@ import {
   ensureUser,
   getContentFeed,
   getDashboardSummary,
+  getEligibility,
+  listTrainingSessions,
   getRoleDashboard,
   getSupportContacts,
   persistTelemetryRecord,
   redeemQrChallenge,
+  createTrainingSession,
   supabaseReady,
   upsertAttendance,
 } from './supabase.js';

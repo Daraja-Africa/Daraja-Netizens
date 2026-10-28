@@ -9,8 +9,12 @@ create table if not exists public.training_sessions (
   status text not null default 'scheduled',
   required_for_training boolean not null default true,
   required_for_stipend boolean not null default false,
+  week_key text,
+  is_makeup boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+alter table public.attendance_logs add column if not exists session_id uuid references public.training_sessions(id) on delete cascade;
 
 create table if not exists public.qr_challenges (
   id uuid primary key default gen_random_uuid(),
