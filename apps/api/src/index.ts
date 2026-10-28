@@ -61,93 +61,56 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/v1/auth/me', requireAuth(), (req: AuthenticatedRequest, res) => {
-    return res.json({ user: req.user });
+  return res.json({ user: req.user });
 });
 
 app.get('/api/v1/facilitator/dashboard', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
-    try {
-      return res.json(await getRoleDashboard(req.user!.id));
-    } catch (error) {
-      console.error('Facilitator dashboard failed', error);
-      return res.status(503).json({ error: 'Facilitator dashboard unavailable' });
-    }
-});
-
-app.get('/api/v1/sessions', requireAuth(['admin', 'facilitator', 'student', 'participant']), async (_req, res) => {
   try {
-    return res.json(await listTrainingSessions());
+    return res.json(await getRoleDashboard(req.user!.id));
   } catch (error) {
-    console.error('Training sessions failed', error);
-    return res.status(503).json({ error: 'Training sessions unavailable' });
-  }
-});
-
-app.post('/api/v1/sessions', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
-  const parsed = z.object({
-    title: z.string().min(1).max(160),
-    sessionType: z.enum(['physical', 'online']),
-    scheduledAt: z.string().datetime(),
-    requiredForTraining: z.boolean().default(true),
-    requiredForStipend: z.boolean().default(false),
-    weekKey: z.string().max(32).optional(),
-    isMakeup: z.boolean().default(false),
-  }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid training session payload', details: parsed.error.flatten() });
-  try {
-    return res.status(201).json(await createTrainingSession(parsed.data));
-  } catch (error) {
-    console.error('Training session creation failed', error);
-    return res.status(503).json({ error: 'Training session creation unavailable' });
-  }
-});
-
-app.get('/api/v1/eligibility/me', requireAuth(['admin', 'facilitator', 'student', 'participant']), async (req: AuthenticatedRequest, res) => {
-  try {
-    return res.json(await getEligibility(req.user!.id));
-  } catch (error) {
-    console.error('Eligibility calculation failed', error);
-    return res.status(503).json({ error: 'Eligibility unavailable' });
+    console.error('Facilitator dashboard failed', error);
+    return res.status(503).json({ error: 'Facilitator dashboard unavailable' });
   }
 });
 
 app.post('/api/v1/attendance/qr', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
-    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid QR session payload' });
-    try {
-      return res.status(201).json(await createQrChallenge({ sessionId: parsed.data.sessionId, facilitatorId: req.user!.id }));
-    } catch (error) {
-      console.error('QR challenge creation failed', error);
-      return res.status(503).json({ error: 'QR challenge unavailable' });
-    }
+  const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid QR session payload' });
+  try {
+    return res.status(201).json(await createQrChallenge({ sessionId: parsed.data.sessionId, facilitatorId: req.user!.id }));
+  } catch (error) {
+    console.error('QR challenge creation failed', error);
+    return res.status(503).json({ error: 'QR challenge unavailable' });
+  }
 });
 
-app.post('/api/v1/attendance/qr/redeem', requireAuth(['admin', 'facilitator', 'student', 'participant']), async (req: AuthenticatedRequest, res) => {
-    const parsed = z.object({ token: z.string().min(10) }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid QR token' });
-    try {
-      return res.status(201).json(await redeemQrChallenge({ token: parsed.data.token, studentId: req.user!.id }));
-    } catch (error) {
-      console.error('QR redemption failed', error);
-      return res.status(409).json({ error: error instanceof Error ? error.message : 'QR redemption failed' });
-    }
+app.post('/api/v1/attendance/qr/redeem', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+  const parsed = z.object({ token: z.string().min(10) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid QR token' });
+  try {
+    return res.status(201).json(await redeemQrChallenge({ token: parsed.data.token, studentId: req.user!.id }));
+  } catch (error) {
+    console.error('QR redemption failed', error);
+    return res.status(409).json({ error: error instanceof Error ? error.message : 'QR redemption failed' });
+  }
 });
 
-app.get('/api/v1/content', requireAuth(['student', 'participant', 'facilitator', 'admin']), async (_req, res) => {
-    try {
-      return res.json(await getContentFeed());
-    } catch (error) {
-      console.error('Content feed failed', error);
-      return res.status(503).json({ error: 'Content feed unavailable' });
-    }
+app.get('/api/v1/content', async (_req, res) => {
+  try {
+    return res.json(await getContentFeed());
+  } catch (error) {
+    console.error('Content feed failed', error);
+    return res.status(503).json({ error: 'Content feed unavailable' });
+  }
 });
 
-app.get('/api/v1/support/contacts', requireAuth(['student', 'participant', 'facilitator', 'admin']), async (_req, res) => {
-    try {
-      return res.json(await getSupportContacts());
-    } catch (error) {
-      console.error('Support contacts failed', error);
-      return res.status(503).json({ error: 'Support contacts unavailable' });
-    }
+app.get('/api/v1/support/contacts', async (_req, res) => {
+  try {
+    return res.json(await getSupportContacts());
+  } catch (error) {
+    console.error('Support contacts failed', error);
+    return res.status(503).json({ error: 'Support contacts unavailable' });
+  }
 });
 
 app.post('/api/v1/rooms/token', async (req, res) => {
