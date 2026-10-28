@@ -15,6 +15,10 @@ type JitsiApi = {
   addListener: (eventName: string, callback: (data?: unknown) => void) => void;
 };
 
+type BarcodeDetectorLike = {
+  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 const jitsiDomain = import.meta.env.VITE_JITSI_DOMAIN ?? 'meet.jit.si';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -47,11 +51,14 @@ export default function App() {
   const [sessionId, setSessionId] = useState('');
   const [qrToken, setQrToken] = useState('');
   const [scanToken, setScanToken] = useState('');
+  const [cameraStatus, setCameraStatus] = useState('Camera is off');
   const [isBusy, setIsBusy] = useState(false);
   const [meeting, setMeeting] = useState<{ roomName: string; meetingId: string; token: string; jitsiDomain: string } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const jitsiApiRef = useRef<JitsiApi | null>(null);
   const joinedAtRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const accessToken = session?.access_token ?? null;
   const isDemo = !supabase;
@@ -89,7 +96,10 @@ export default function App() {
     }
   }, [accessToken, canFacilitate, user]);
 
-  useEffect(() => () => jitsiApiRef.current?.dispose(), []);
+  useEffect(() => () => {
+    jitsiApiRef.current?.dispose();
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   async function signIn(event: FormEvent) {
     event.preventDefault();
@@ -173,6 +183,42 @@ export default function App() {
     }
   }
 
+  async function startCamera() {
+      if (!videoRef.current || !('mediaDevices' in navigator)) {
+        setCameraStatus('Camera unavailable; use manual token entry');
+        return;
+      }
+      const detector = (window as typeof window & { BarcodeDetector?: new () => BarcodeDetectorLike }).BarcodeDetector;
+      if (!detector) {
+        setCameraStatus('QR camera decoding is not supported in this browser');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        cameraStreamRef.current = stream;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraStatus('Scanning for a QR challenge…');
+        const scanner = new detector();
+        const scan = async () => {
+          if (!videoRef.current || !cameraStreamRef.current) return;
+          const codes = await scanner.detect(videoRef.current);
+          const token = codes.find((code) => code.rawValue)?.rawValue;
+          if (token) {
+            setScanToken(token);
+            setCameraStatus('QR captured. Submit to record attendance.');
+            cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+            cameraStreamRef.current = null;
+            return;
+          }
+          window.setTimeout(() => void scan(), 500);
+        };
+        void scan();
+      } catch {
+        setCameraStatus('Camera permission was denied; use manual token entry');
+    }
+  }
+
   const nav = useMemo(() => canFacilitate
     ? [['overview', 'Overview'], ['qr', 'QR check-in'], ['scanner', 'Admin scanner'], ['training', 'Training room']]
     : [['overview', 'My progress'], ['training', 'Training room'], ['library', 'Learning hub']], [canFacilitate]);
@@ -194,7 +240,7 @@ export default function App() {
         <header className="content-header"><div><p className="viewer-kicker">{canFacilitate ? 'Facilitator and admin console' : 'Student learning space'}</p><h2>{nav.find(([key]) => key === view)?.[1] ?? 'Workspace'}</h2></div><span className="live-indicator"><i /> Secure session</span></header>
         {view === 'overview' && <Overview dashboard={dashboard} canFacilitate={canFacilitate} />}
         {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">Display this challenge on the facilitator screen. It expires after sixty seconds and can only be redeemed once.</p><input placeholder="Training session UUID" value={sessionId} onChange={(event) => setSessionId(event.target.value)} /><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrToken ? <><div className="qr-placeholder">{qrToken.slice(0, 8)}</div><code>{qrToken}</code></> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
-        {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Camera scanning is ready for the next integration. Use the secure manual token fallback when camera permission is unavailable.</p><div className="scanner-frame"><span>Camera preview</span></div><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li></ul></div></section>}
+        {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Allow camera access to scan a one-time challenge, or use the manual token fallback.</p><div className="scanner-frame"><video ref={videoRef} className="scanner-video" muted playsInline /><span>{cameraStatus}</span></div><button type="button" onClick={() => void startCamera()}>Start camera scanner</button><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li></ul></div></section>}
         {view === 'training' && <section className="training-layout"><form className="feature-card" onSubmit={launchRoom}><p className="viewer-kicker">Virtual training room</p><h3>Join a secure Jitsi session</h3><label>Room name<input value={roomName} onChange={(event) => setRoomName(event.target.value)} /></label><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Email<input type="email" value={roomEmail} onChange={(event) => setRoomEmail(event.target.value)} /></label><button type="submit" disabled={isBusy}>{isBusy ? 'Launching…' : 'Launch training room'}</button></form><div className="jitsi-panel" ref={containerRef}><div className="empty-state"><strong>{meeting ? meeting.roomName : 'Meeting preview'}</strong><span>{meeting ? `Jitsi: ${meeting.jitsiDomain}` : 'Launch a room to begin'}</span></div></div></section>}
         {view === 'library' && <section className="library-grid">{content.length ? content.map((item) => <a className="content-card" key={item.id} href={item.url} target="_blank" rel="noreferrer"><span className="tag">{item.category}</span><h3>{item.title}</h3><p>{item.summary}</p></a>) : <div className="empty-state">Learning content will appear here after publication.</div>}<div className="support-card"><p className="viewer-kicker">Wellness support</p><h3>You do not have to navigate difficult moments alone.</h3><p className="muted">Connect with a professional support partner.</p>{support.length ? support.map((item) => <a key={item.id} href={item.channel === 'url' ? item.value : `${item.channel}:${item.value}`}>{item.label}</a>) : <span className="muted">Support contacts are being configured.</span>}</div></section>}
       </section>
