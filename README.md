@@ -65,11 +65,31 @@ architecture:
   secrets. Never add the service-role key to Vercel.
 - Set Vercel `VITE_API_BASE_URL` to
   `https://api.darajanetizens.cc.cd` and `VITE_JITSI_DOMAIN` to `meet.jit.si`.
+- Set Vercel `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for the
+  Supabase Auth login flow. The anonymous key is safe for the browser; never
+  expose `SUPABASE_SERVICE_ROLE_KEY` to Vercel.
 - Set Render `CORS_ORIGIN` to `https://darajanetizens.cc.cd`.
 
 The `7-of-8` training and `4-of-6` stipend quotas require a participant
 eligibility data model and are not represented in the current initial schema;
 they should be added as a separate migration before enabling payout decisions.
+
+## Module 1 frontend and API
+
+The role workspace now supports:
+
+- Supabase Auth login with facilitator/admin versus student navigation.
+- Facilitator progress cards for physical sessions, online sessions, attendance,
+  training progress, and stipend progress.
+- Short-lived one-time QR challenge generation and server-side redemption.
+- Admin scanner mode with a secure manual token fallback; camera decoding can be
+  added without changing the redemption API.
+- Jitsi training-room launch with presence telemetry and attendance updates.
+- Student learning content and configurable wellness support contacts.
+
+Apply `supabase/migrations/20261028150000_modules_attendance_content.sql` before
+using the new database-backed module endpoints. Configure
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel for the login flow.
 
 ## Current MVP scope
 
