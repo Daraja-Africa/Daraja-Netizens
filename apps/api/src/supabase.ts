@@ -62,6 +62,45 @@ export async function getDashboardSummary() {
   return { meetings: meetings.data ?? [], attendance: attendance.data ?? [], telemetry: telemetry.data ?? [], source: 'supabase' };
 }
 
+export function calculateModuleOneEligibility(input: {
+  trainingSessions: Array<{ id: string; required_for_training?: boolean | null; required_for_stipend?: boolean | null; session_type?: string | null; }>; 
+  attendanceRecords: Array<{ meeting_id: string; presence_seconds?: number | null; user_id?: string | null; }>;
+}) {
+  const requiredTraining = input.trainingSessions.filter((session) => session.required_for_training);
+  const requiredStipend = input.trainingSessions.filter((session) => session.required_for_stipend);
+  const attendanceCount = (input.attendanceRecords ?? []).filter((record) => (record.presence_seconds ?? 0) > 0).length;
+  const attendedTrainingIds = new Set(
+    (input.attendanceRecords ?? [])
+      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredTraining.some((session) => session.id === record.meeting_id))
+      .map((record) => record.meeting_id)
+  );
+  const attendedStipendIds = new Set(
+    (input.attendanceRecords ?? [])
+      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredStipend.some((session) => session.id === record.meeting_id))
+      .map((record) => record.meeting_id)
+  );
+
+  const trainingThreshold = requiredTraining.length ? Math.max(1, Math.ceil(requiredTraining.length * (7 / 8))) : 0;
+  const stipendThreshold = requiredStipend.length ? Math.max(1, Math.ceil(requiredStipend.length * (2 / 3))) : 0;
+
+  const trainingProgress = requiredTraining.length ? Math.round((attendedTrainingIds.size / requiredTraining.length) * 100) : 0;
+  const stipendProgress = requiredStipend.length ? Math.round((attendedStipendIds.size / requiredStipend.length) * 100) : 0;
+
+  return {
+    attendanceCount,
+    requiredTraining: requiredTraining.length,
+    requiredStipend: requiredStipend.length,
+    trainingThreshold,
+    stipendThreshold,
+    trainingProgress,
+    stipendProgress,
+    trainingEligible: requiredTraining.length ? attendedTrainingIds.size >= trainingThreshold : false,
+    stipendEligible: requiredStipend.length ? attendedStipendIds.size >= stipendThreshold : false,
+    attendedTraining: attendedTrainingIds.size,
+    attendedStipend: attendedStipendIds.size,
+  };
+}
+
 export async function getRoleDashboard(userId: string) {
   const supabase = getSupabaseClient();
   if (!supabase) return { stats: { physicalSessions: 0, onlineSessions: 0, attendanceRate: 0, trainingProgress: 0, stipendProgress: 0 }, sessions: [], source: 'memory' };
@@ -74,17 +113,20 @@ export async function getRoleDashboard(userId: string) {
   if (error) throw error;
   const sessionRows = sessions.data ?? [];
   const attended = (attendance.data ?? []).filter((item) => item.presence_seconds > 0).length;
-  const trainingTotal = sessionRows.filter((item) => item.required_for_training).length;
-  const stipendTotal = sessionRows.filter((item) => item.required_for_stipend).length;
+  const eligibility = calculateModuleOneEligibility({
+    trainingSessions: sessionRows,
+    attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, presence_seconds: item.presence_seconds, user_id: item.user_id })),
+  });
   return {
     stats: {
       physicalSessions: sessionRows.filter((item) => item.session_type === 'physical').length,
       onlineSessions: sessionRows.filter((item) => item.session_type === 'online').length,
       attendanceRate: attendance.data?.length ? Math.round((attended / attendance.data.length) * 100) : 0,
-      trainingProgress: trainingTotal ? Math.round((attended / trainingTotal) * 100) : 0,
-      stipendProgress: stipendTotal ? Math.round((Math.min(attended, stipendTotal) / stipendTotal) * 100) : 0,
+      trainingProgress: eligibility.trainingProgress,
+      stipendProgress: eligibility.stipendProgress,
     },
     sessions: sessionRows,
+    eligibility,
     source: 'supabase',
   };
 }

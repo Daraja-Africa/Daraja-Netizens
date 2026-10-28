@@ -76,14 +76,24 @@ they should be added as a separate migration before enabling payout decisions.
 
 ## Module 1 frontend and API
 
+The product now uses a clear module boundary:
+
+- Module 1 is the authenticated facilitator/admin workspace.
+- The student portal is a separate post-training learning surface.
+- Training eligibility and stipend progress remain Module 1-only and are not
+  displayed in the student portal.
+- In Module 1, the role selector explicitly supports `facilitator` and `admin`.
+- Student-facing routes stay separated from the protected facilitator/admin
+  operations and their attendance, QR, and training logic.
+
 The role workspace now supports:
 
-- Supabase Auth login with facilitator/admin versus student navigation.
+- Supabase Auth login for the facilitator/admin Module 1 experience.
 - Facilitator progress cards for physical sessions, online sessions, attendance,
   training progress, and stipend progress.
 - Short-lived one-time QR challenge generation and server-side redemption.
-- Admin scanner mode with a secure manual token fallback; camera decoding can be
-  added without changing the redemption API.
+- Admin scanner mode with a secure manual token fallback; browsers without
+  `BarcodeDetector` fall back to manual token entry.
 - Jitsi training-room launch with presence telemetry and attendance updates.
 - Student learning content and configurable wellness support contacts.
 
