@@ -6,13 +6,19 @@ import { z } from 'zod';
 import { config } from './config.js';
 import {
   createMeeting,
+  createQrChallenge,
   ensureUser,
+  getContentFeed,
   getDashboardSummary,
+  getRoleDashboard,
+  getSupportContacts,
   persistTelemetryRecord,
+  redeemQrChallenge,
   supabaseReady,
   upsertAttendance,
 } from './supabase.js';
 import { recordTelemetry } from './telemetry.js';
+import { requireAuth, type AuthenticatedRequest } from './auth.js';
 
 const app = express();
 app.use(cors({ origin: config.corsOrigin }));
@@ -49,6 +55,59 @@ app.get('/api/health', (_req, res) => {
     jitsiDomain: config.jitsiDomain,
     supabaseReady,
   });
+
+  app.get('/api/v1/auth/me', requireAuth(), (req: AuthenticatedRequest, res) => {
+    return res.json({ user: req.user });
+  });
+
+  app.get('/api/v1/facilitator/dashboard', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+    try {
+      return res.json(await getRoleDashboard(req.user!.id));
+    } catch (error) {
+      console.error('Facilitator dashboard failed', error);
+      return res.status(503).json({ error: 'Facilitator dashboard unavailable' });
+    }
+  });
+
+  app.post('/api/v1/attendance/qr', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid QR session payload' });
+    try {
+      return res.status(201).json(await createQrChallenge({ sessionId: parsed.data.sessionId, facilitatorId: req.user!.id }));
+    } catch (error) {
+      console.error('QR challenge creation failed', error);
+      return res.status(503).json({ error: 'QR challenge unavailable' });
+    }
+  });
+
+  app.post('/api/v1/attendance/qr/redeem', requireAuth(['admin', 'facilitator', 'student', 'participant']), async (req: AuthenticatedRequest, res) => {
+    const parsed = z.object({ token: z.string().min(10) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid QR token' });
+    try {
+      return res.status(201).json(await redeemQrChallenge({ token: parsed.data.token, studentId: req.user!.id }));
+    } catch (error) {
+      console.error('QR redemption failed', error);
+      return res.status(409).json({ error: error instanceof Error ? error.message : 'QR redemption failed' });
+    }
+  });
+
+  app.get('/api/v1/content', requireAuth(['student', 'participant', 'facilitator', 'admin']), async (_req, res) => {
+    try {
+      return res.json(await getContentFeed());
+    } catch (error) {
+      console.error('Content feed failed', error);
+      return res.status(503).json({ error: 'Content feed unavailable' });
+    }
+  });
+
+  app.get('/api/v1/support/contacts', requireAuth(['student', 'participant', 'facilitator', 'admin']), async (_req, res) => {
+    try {
+      return res.json(await getSupportContacts());
+    } catch (error) {
+      console.error('Support contacts failed', error);
+      return res.status(503).json({ error: 'Support contacts unavailable' });
+    }
+  });
 });
 
 app.post('/api/v1/rooms/token', async (req, res) => {
@@ -66,7 +125,7 @@ app.post('/api/v1/rooms/token', async (req, res) => {
       id: userId,
       email: email ?? `${userId}@daraja.local`,
       fullName: userName,
-      role: 'host',
+      role: 'facilitator',
     });
     meeting = await createMeeting({
       roomKey: roomName,

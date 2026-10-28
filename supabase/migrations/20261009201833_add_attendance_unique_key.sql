@@ -1,0 +1,2 @@
+-- Historical migration already applied to the linked Supabase project.
+-- The unique attendance index is maintained in the repository's consolidated migration.
