@@ -24,6 +24,8 @@ const jitsiDomain = import.meta.env.VITE_JITSI_DOMAIN ?? 'meet.jit.si';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+const demoRole = new URLSearchParams(window.location.search).get('role');
+const localDemoRole: Role = demoRole === 'student' || demoRole === 'participant' ? demoRole : 'facilitator';
 
 async function apiFetch(path: string, accessToken: string | null, options?: RequestInit) {
   const headers = new Headers(options?.headers);
@@ -67,7 +69,11 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) {
-      setUser({ id: '00000000-0000-4000-8000-000000000001', role: 'facilitator', name: 'Local facilitator' });
+      setUser({
+        id: '00000000-0000-4000-8000-000000000001',
+        role: localDemoRole,
+        name: localDemoRole === 'facilitator' ? 'Local facilitator' : 'Local student',
+      });
       return;
     }
     void supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -81,8 +87,16 @@ export default function App() {
       return;
     }
     if (!session && !isDemo) return;
+    if (isDemo) {
+      setUser({
+        id: '00000000-0000-4000-8000-000000000001',
+        role: localDemoRole,
+        name: localDemoRole === 'facilitator' ? 'Local facilitator' : 'Local student',
+      });
+      return;
+    }
     void apiFetch('/api/v1/auth/me', accessToken).then((data) => setUser(data.user)).catch(() => {
-      if (isDemo) setUser({ id: '00000000-0000-4000-8000-000000000001', role: 'facilitator', name: 'Local facilitator' });
+      setUser(null);
     });
   }, [accessToken, isDemo, session]);
 
