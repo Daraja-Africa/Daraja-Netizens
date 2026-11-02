@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import { config } from './config.js';
@@ -24,8 +25,35 @@ import { recordTelemetry } from './telemetry.js';
 import { requireAuth, type AuthenticatedRequest } from './auth.js';
 
 const app = express();
+const writeRequests = new Map<string, { startedAt: number; count: number }>();
+
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  const requestId = req.header('x-request-id')?.trim() || randomUUID();
+  res.setHeader('x-request-id', requestId);
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('referrer-policy', 'no-referrer');
+  next();
+});
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const key = `${req.ip}:${req.path}`;
+  const now = Date.now();
+  const current = writeRequests.get(key);
+  if (!current || now - current.startedAt >= config.writeRateLimitWindowMs) {
+    writeRequests.set(key, { startedAt: now, count: 1 });
+    return next();
+  }
+  if (current.count >= config.writeRateLimitMax) {
+    res.setHeader('retry-after', Math.ceil((config.writeRateLimitWindowMs - (now - current.startedAt)) / 1000));
+    return res.status(429).json({ error: 'Too many write requests' });
+  }
+  current.count += 1;
+  return next();
+});
 
 const roomSchema = z.object({
   roomName: z.string().min(3).max(80),
@@ -56,6 +84,15 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     service: 'daraja-api',
     jitsiDomain: config.jitsiDomain,
+    supabaseReady,
+  });
+});
+
+app.get('/api/ready', (_req, res) => {
+  const ready = config.nodeEnv !== 'production' || supabaseReady;
+  return res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    service: 'daraja-api',
     supabaseReady,
   });
 });

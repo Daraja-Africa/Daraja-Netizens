@@ -13,6 +13,8 @@ export const config = {
   supabaseUrl: process.env.SUPABASE_URL ?? '',
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  writeRateLimitWindowMs: Number(process.env.WRITE_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  writeRateLimitMax: Number(process.env.WRITE_RATE_LIMIT_MAX ?? 120),
 };
 
 if (config.nodeEnv === 'production' && (!config.jwtSecret || !config.supabaseServiceRoleKey)) {
