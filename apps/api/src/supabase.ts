@@ -64,20 +64,20 @@ export async function getDashboardSummary() {
 
 export function calculateModuleOneEligibility(input: {
   trainingSessions: Array<{ id: string; required_for_training?: boolean | null; required_for_stipend?: boolean | null; session_type?: string | null; }>; 
-  attendanceRecords: Array<{ meeting_id: string; presence_seconds?: number | null; user_id?: string | null; }>;
+  attendanceRecords: Array<{ meeting_id: string; session_id?: string | null; presence_seconds?: number | null; user_id?: string | null; }>;
 }) {
   const requiredTraining = input.trainingSessions.filter((session) => session.required_for_training);
   const requiredStipend = input.trainingSessions.filter((session) => session.required_for_stipend);
   const attendanceCount = (input.attendanceRecords ?? []).filter((record) => (record.presence_seconds ?? 0) > 0).length;
   const attendedTrainingIds = new Set(
     (input.attendanceRecords ?? [])
-      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredTraining.some((session) => session.id === record.meeting_id))
-      .map((record) => record.meeting_id)
+      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredTraining.some((session) => session.id === (record.session_id ?? record.meeting_id)))
+      .map((record) => record.session_id ?? record.meeting_id)
   );
   const attendedStipendIds = new Set(
     (input.attendanceRecords ?? [])
-      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredStipend.some((session) => session.id === record.meeting_id))
-      .map((record) => record.meeting_id)
+      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredStipend.some((session) => session.id === (record.session_id ?? record.meeting_id)))
+      .map((record) => record.session_id ?? record.meeting_id)
   );
 
   const trainingThreshold = requiredTraining.length ? Math.max(1, Math.ceil(requiredTraining.length * (7 / 8))) : 0;
@@ -106,7 +106,7 @@ export async function getRoleDashboard(userId: string) {
   if (!supabase) return { stats: { physicalSessions: 0, onlineSessions: 0, attendanceRate: 0, trainingProgress: 0, stipendProgress: 0 }, sessions: [], source: 'memory' };
   const [meetings, attendance, sessions] = await Promise.all([
     supabase.from('meetings').select('id, room_key, title, scheduled_start, status, meeting_type').eq('host_id', userId).order('scheduled_start', { ascending: false }).limit(50),
-    supabase.from('attendance_logs').select('id, meeting_id, user_id, joined_at, left_at, presence_seconds, source').eq('user_id', userId).order('joined_at', { ascending: false }).limit(200),
+    supabase.from('attendance_logs').select('id, meeting_id, session_id, user_id, joined_at, left_at, presence_seconds, source').eq('user_id', userId).order('joined_at', { ascending: false }).limit(200),
     supabase.from('training_sessions').select('id, title, session_type, scheduled_at, status, required_for_training, required_for_stipend').order('scheduled_at', { ascending: false }).limit(50),
   ]);
   const error = meetings.error ?? attendance.error ?? sessions.error;
@@ -115,7 +115,7 @@ export async function getRoleDashboard(userId: string) {
   const attended = (attendance.data ?? []).filter((item) => item.presence_seconds > 0).length;
   const eligibility = calculateModuleOneEligibility({
     trainingSessions: sessionRows,
-    attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, presence_seconds: item.presence_seconds, user_id: item.user_id })),
+    attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, session_id: item.session_id, presence_seconds: item.presence_seconds, user_id: item.user_id })),
   });
   return {
     stats: {
@@ -206,7 +206,7 @@ export async function redeemQrChallenge(input: { token: string; studentId: strin
   if (!challenge || challenge.redeemed_at || new Date(challenge.expires_at).getTime() < Date.now()) throw new Error('QR challenge is expired or already used');
   const { error: redeemError } = await supabase.from('qr_challenges').update({ redeemed_at: new Date().toISOString(), redeemed_by: input.studentId }).eq('id', challenge.id).is('redeemed_at', null);
   if (redeemError) throw redeemError;
-  const { error: attendanceError } = await supabase.from('attendance_logs').upsert({ session_id: challenge.session_id, meeting_id: challenge.session_id, user_id: input.studentId, joined_at: new Date().toISOString(), presence_seconds: 1, source: 'physical_qr' }, { onConflict: 'meeting_id,user_id' });
+  const { error: attendanceError } = await supabase.from('attendance_logs').insert({ session_id: challenge.session_id, user_id: input.studentId, joined_at: new Date().toISOString(), presence_seconds: 1, source: 'physical_qr' });
   if (attendanceError) throw attendanceError;
   return { ok: true, source: 'supabase' };
 }

@@ -84,7 +84,7 @@ app.post('/api/v1/attendance/qr', requireAuth(['admin', 'facilitator']), async (
   }
 });
 
-app.post('/api/v1/attendance/qr/redeem', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+app.post('/api/v1/attendance/qr/redeem', requireAuth(['admin', 'facilitator', 'student']), async (req: AuthenticatedRequest, res) => {
   const parsed = z.object({ token: z.string().min(10) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid QR token' });
   try {
@@ -113,13 +113,14 @@ app.get('/api/v1/support/contacts', async (_req, res) => {
   }
 });
 
-app.post('/api/v1/rooms/token', async (req, res) => {
+app.post('/api/v1/rooms/token', requireAuth(), async (req: AuthenticatedRequest, res) => {
   const parsed = roomSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid room payload', details: parsed.error.flatten() });
   }
 
-  const { roomName, userId, userName, email, meetingId, title } = parsed.data;
+  const { roomName, userName, email, title } = parsed.data;
+  const userId = req.user!.id;
   const nowSeconds = Math.floor(Date.now() / 1000);
   let meeting: { id: string };
 
@@ -176,14 +177,14 @@ app.post('/api/v1/rooms/token', async (req, res) => {
   });
 });
 
-app.post('/api/v1/attendance', async (req, res) => {
+app.post('/api/v1/attendance', requireAuth(), async (req: AuthenticatedRequest, res) => {
   const parsed = attendanceSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid attendance payload', details: parsed.error.flatten() });
   }
 
   try {
-    const attendance = await upsertAttendance(parsed.data);
+    const attendance = await upsertAttendance({ ...parsed.data, userId: req.user!.id });
     return res.status(201).json({ attendance });
   } catch (error) {
     console.error('Attendance persistence failed', error);
@@ -191,24 +192,25 @@ app.post('/api/v1/attendance', async (req, res) => {
   }
 });
 
-app.post('/api/v1/telemetry', async (req, res) => {
+app.post('/api/v1/telemetry', requireAuth(), async (req: AuthenticatedRequest, res) => {
   const parsed = telemetrySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid telemetry payload', details: parsed.error.flatten() });
   }
 
-  const event = recordTelemetry(parsed.data);
+  const event = recordTelemetry({ ...parsed.data, userId: req.user!.id });
 
   try {
     await persistTelemetryRecord({
       event_type: parsed.data.eventType,
       meeting_id: parsed.data.meetingId,
-      user_id: parsed.data.userId,
+      user_id: req.user!.id,
       created_at: new Date(parsed.data.timestamp).toISOString(),
       payload: parsed.data,
     });
   } catch (error) {
-    console.warn('Supabase telemetry persistence unavailable', error);
+    console.error('Telemetry persistence failed', error);
+    return res.status(503).json({ error: 'Telemetry persistence is unavailable' });
   }
 
   return res.status(202).json({ ok: true, message: 'Telemetry received', event, supabaseReady });
