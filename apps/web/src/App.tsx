@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 
-import { apiFetch } from './api';
+import { ApiError, apiFetch } from './api';
 import { readStoredPortal, storePortal, type Portal } from './portal';
 import { RoleSelector } from './RoleSelector';
 import ModuleOneNav from './facilitator/ModuleOneNav';
@@ -40,6 +40,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 const demoRole = new URLSearchParams(window.location.search).get('role');
 const localDemoRole: Role = demoRole === 'student' || demoRole === 'participant' ? demoRole : 'facilitator';
+const notAllowlistedNotice = 'This Google account is not listed as an approved Daraja facilitator. Please sign in with your registered Daraja email or switch to the Student Portal.';
 
 const studentNav: Array<{ key: 'overview' | 'hub' | 'reach-out'; label: string; path: string }> = [
   { key: 'overview', label: 'Overview', path: '/student' },
@@ -53,6 +54,7 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [accessNotice, setAccessNotice] = useState('');
   const [portal, setPortal] = useState<Portal | null>(readStoredPortal);
   const [moduleTab, setModuleTab] = useState<ModuleKey>(readStoredPortal() === 'student' ? 'student' : 'module1');
   const [module1Role, setModule1Role] = useState<Module1Role>('facilitator');
@@ -108,13 +110,20 @@ export default function App() {
     }
     if (!session && !isDemo) return;
     void apiFetch('/api/v1/auth/me', accessToken).then((data) => {
+      setAccessNotice('');
       setUser(data.user);
       if (data.user.role === 'admin' || data.user.role === 'facilitator') {
         setModule1Role(data.user.role);
       }
-    }).catch(() => {
+    }).catch((error: unknown) => {
       if (isDemo) {
         setUser({ id: '00000000-0000-4000-8000-000000000001', role: 'facilitator', name: 'Local facilitator' });
+        return;
+      }
+      // An unapproved Google account is signed out of Module 1 with guidance.
+      if (error instanceof ApiError && error.status === 403 && error.payload?.error === 'NOT_ALLOWLISTED') {
+        setAccessNotice(notAllowlistedNotice);
+        void supabase?.auth.signOut();
       }
     });
   }, [accessToken, isDemo, session]);
@@ -160,6 +169,17 @@ export default function App() {
     if (!supabase) return;
     setAuthError('');
     const result = await supabase.auth.signInWithPassword({ email, password });
+    if (result.error) setAuthError(result.error.message);
+  }
+
+  async function signInWithGoogle() {
+    if (!supabase) return;
+    setAuthError('');
+    setAccessNotice('');
+    const result = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
     if (result.error) setAuthError(result.error.message);
   }
 
@@ -310,6 +330,9 @@ export default function App() {
           <p className="eyebrow">Daraja Netizens</p>
           <h1>Module 1 access</h1>
           <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
+          {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
+          <button type="button" className="google-button" onClick={() => void signInWithGoogle()}>Sign in with Google</button>
+          <p className="auth-divider">or use your Daraja email</p>
           <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
           <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
           {authError && <p className="error-text">{authError}</p>}

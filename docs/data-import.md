@@ -53,6 +53,14 @@ you and skips versions the project already has.
 12. `20261117120100_seed_member_roster.sql` — the 43 members and their cohorts.
 13. `20261117120200_seed_lesson_attendance.sql` — the 4 lessons, 4 meetings, 105
     attendance rows, 33 aliases and 9 review entries.
+14. `20261117120300_sync_auth_users_to_seeded_profiles.sql` — links a Google
+    sign-in to the seeded profile that owns the same email. The
+    `auth.users` trigger and its one-time backfill move the profile and every
+    row that references it (`attendance_logs.user_id`, `telemetry_events.user_id`,
+    `meetings.host_id`, `qr_challenges`, `member_aliases`,
+    `attendance_unmatched_entries`) from the placeholder uuid to the Auth uuid.
+    Emails that are not on the roster are left alone, so no profile is invented.
+    This must run **after** the roster seed, or the backfill has nothing to match.
 
 Every statement is additive and idempotent: sessions match on
 `(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on
@@ -78,18 +86,20 @@ npx supabase db push --db-url "postgresql://postgres:<db-password>@db.<project-r
 
 New project: run every file in the list above in order.
 
-Existing project (the linked one): run only migrations 11–13, in order.
+Existing project (the linked one): run only the migrations it is missing, in
+order — 11–13 for the roster and lesson data, then 14 for the sign-in sync.
 
 ```bash
 for f in supabase/migrations/20261117120000_attendance_import_schema.sql \
          supabase/migrations/20261117120100_seed_member_roster.sql \
-         supabase/migrations/20261117120200_seed_lesson_attendance.sql; do
+         supabase/migrations/20261117120200_seed_lesson_attendance.sql \
+         supabase/migrations/20261117120300_sync_auth_users_to_seeded_profiles.sql; do
   psql "postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres" -v ON_ERROR_STOP=1 -f "$f"
 done
 ```
 
-In the dashboard SQL editor, paste and run each of the three files in the same
-order, waiting for each to finish before starting the next.
+In the dashboard SQL editor, paste and run each file in the same order, waiting
+for each to finish before starting the next.
 
 ### Verify
 
@@ -104,6 +114,14 @@ select s.title, count(*)
  group by 1 order by 1;                                                             -- 31 / 30 / 23 / 21
 select count(*) from public.member_aliases;                                         -- 33
 select count(*) from public.attendance_unmatched_entries;                            -- 9
+
+-- after a member signs in with Google their profile id equals their Auth id
+select a.email, u.id = a.id as linked_to_auth
+  from auth.users a
+  join public.users u on lower(u.email) = lower(a.email);                           -- linked_to_auth = t
+select count(*) from public.users u
+ where u.source = 'daraja-member-roster'
+   and u.id not in (select id from auth.users);                                     -- placeholders not signed in yet
 ```
 
 Then open **Attendance data** in the facilitator dashboard (`/facilitator/data`):
