@@ -31,6 +31,17 @@ import {
 } from './studentContent.js';
 import { recordTelemetry } from './telemetry.js';
 import { requireAuth, type AuthenticatedRequest } from './auth.js';
+import {
+  applyLessonImport,
+  applyMemberImport,
+  getAttendanceOverview,
+  ImportInputError,
+  MigrationRequiredError,
+  parseLessonDocument,
+  parseMemberWorkbook,
+  loadRoster,
+  resolveEntries,
+} from './memberImport.js';
 
 const app = express();
 const writeRequests = new Map<string, { startedAt: number; count: number }>();
@@ -51,6 +62,125 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cors({ origin: config.corsOrigin }));
+
+// Attendance imports post the roster spreadsheet and lesson documents as base64,
+// so they parse their own (larger) body. Registered before the small JSON
+// parser every other route uses.
+const attendanceUploadSchema = z.object({
+  kind: z.enum(['members', 'attendance']),
+  files: z
+    .array(z.object({ name: z.string().min(1).max(200), data: z.string().min(1) }))
+    .min(1)
+    .max(6),
+});
+
+type AttendanceUpload = z.infer<typeof attendanceUploadSchema>;
+
+function decodeUpload(file: { name: string; data: string }) {
+  const base64 = file.data.startsWith('data:') ? file.data.slice(file.data.indexOf(',') + 1) : file.data;
+  return { name: file.name, buffer: Buffer.from(base64, 'base64') };
+}
+
+async function readAttendanceUpload(upload: AttendanceUpload) {
+  if (upload.kind === 'members') {
+    const [file] = upload.files;
+    if (upload.files.length !== 1 || !/\.(xlsx|xls)$/i.test(file.name)) {
+      throw new ImportInputError('Upload one .xlsx or .xls member spreadsheet');
+    }
+    return { kind: 'members' as const, workbook: parseMemberWorkbook(decodeUpload(file).buffer) };
+  }
+  if (upload.files.some((file) => !/\.docx$/i.test(file.name))) {
+    throw new ImportInputError('Upload .docx attendance documents only');
+  }
+  const lessons = await Promise.all(
+    upload.files.map(async (file) => parseLessonDocument(decodeUpload(file).buffer, file.name))
+  );
+  return { kind: 'attendance' as const, lessons };
+}
+
+function importFailure(res: express.Response, error: unknown) {
+  if (error instanceof MigrationRequiredError) {
+    return res.status(409).json({ error: error.message, detail: error.detail, migrationRequired: true });
+  }
+  if (error instanceof ImportInputError) return res.status(400).json({ error: error.message });
+  console.error('Attendance import failed', error);
+  return res.status(503).json({ error: 'Attendance import failed. Check the API logs and try again.' });
+}
+
+const attendanceRouter = express.Router();
+attendanceRouter.use(express.json({ limit: '25mb' }));
+
+attendanceRouter.get('/data', requireAuth(['admin', 'facilitator']), async (_req, res) => {
+  try {
+    return res.json(await getAttendanceOverview());
+  } catch (error) {
+    if (error instanceof MigrationRequiredError) return importFailure(res, error);
+    console.error('Attendance overview failed', error);
+    return res.status(503).json({ error: 'Attendance data is unavailable' });
+  }
+});
+
+attendanceRouter.post('/import/preview', requireAuth(['admin', 'facilitator']), async (req, res) => {
+  const parsed = attendanceUploadSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Choose a file to preview' });
+  try {
+    const upload = await readAttendanceUpload(parsed.data);
+    const roster = await loadRoster();
+    if (upload.kind === 'members') {
+      const known = new Set(roster.members.map((member) => member.email.toLowerCase()));
+      const members = upload.workbook.members;
+      return res.json({
+        kind: 'members',
+        total: members.length,
+        toCreate: members.filter((member) => !known.has(member.email)).map((member) => member.name),
+        toUpdate: members.filter((member) => known.has(member.email)).map((member) => member.name),
+        skipped: upload.workbook.skipped,
+      });
+    }
+    return res.json({
+      kind: 'attendance',
+      lessons: upload.lessons.map((lesson) => {
+        const resolved = resolveEntries(lesson, roster);
+        return {
+          title: resolved.title,
+          date: resolved.date,
+          meetingCode: resolved.meetingCode,
+          sourceFile: resolved.sourceFile,
+          matched: resolved.resolved.filter((entry) => entry.member).length,
+          unmatched: resolved.resolved.filter((entry) => entry.status === 'unmatched').length,
+          excluded: resolved.resolved.filter((entry) => entry.status === 'excluded').length,
+          entries: resolved.resolved.map((entry) => ({
+            displayName: entry.displayName,
+            memberName: entry.member?.full_name ?? null,
+            status: entry.status,
+          })),
+        };
+      }),
+    });
+  } catch (error) {
+    return importFailure(res, error);
+  }
+});
+
+attendanceRouter.post('/import/apply', requireAuth(['admin', 'facilitator']), async (req, res) => {
+  const parsed = attendanceUploadSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Choose a file to import' });
+  try {
+    const upload = await readAttendanceUpload(parsed.data);
+    if (upload.kind === 'members') {
+      const summary = await applyMemberImport(upload.workbook.members, upload.workbook.skipped);
+      return res.json({ kind: 'members', ...summary });
+    }
+    const roster = await loadRoster();
+    const summaries = await applyLessonImport(upload.lessons.map((lesson) => resolveEntries(lesson, roster)));
+    return res.json({ kind: 'attendance', lessons: summaries });
+  } catch (error) {
+    return importFailure(res, error);
+  }
+});
+
+app.use('/api/v1/facilitator/attendance', attendanceRouter);
+
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();

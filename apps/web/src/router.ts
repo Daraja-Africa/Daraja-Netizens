@@ -18,13 +18,14 @@ export function parseStudentRoute(pathname: string): StudentRoute | null {
   return { kind: 'overview' };
 }
 
-export type FacilitatorRoute = { kind: 'flashcards' };
+export type FacilitatorRoute = { kind: 'flashcards' } | { kind: 'data' };
 
 const facilitatorPrefix = '/facilitator';
 
 export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null {
   const clean = pathname.replace(/\/+$/, '') || '/';
   if (clean === `${facilitatorPrefix}/flashcards`) return { kind: 'flashcards' };
+  if (clean === `${facilitatorPrefix}/data`) return { kind: 'data' };
   return null;
 }
 

@@ -1,42 +1,147 @@
-# Daraja data import
+# Daraja member and lesson data
 
-The API includes a dry-run-first importer for the member roster and dated lesson attendance exports.
+How the facilitator roster and the four dated lesson attendance records are
+normalized into the app, and how to apply the migrations that carry them.
 
-## What it imports
+## What the data becomes
 
-- The member spreadsheet's first worksheet is treated as the active roster.
-- `ALPHONCE AKILENG` and `Fatma Namanda Webbo` are excluded from active users.
-- Remaining roster members are created or matched as inactive `student` Auth users without invitations.
-- Lesson documents become completed online training sessions and historical meetings.
-- Attendance names are normalized against the roster. Unresolved labels are reported and never assigned automatically.
+| Source | Becomes |
+| --- | --- |
+| `Untitledspreadsheet.xlsx` Sheet 1 (44 rows) | 43 rows in `public.users` tagged `source = 'daraja-member-roster'`, with `national_id`, `phone`, `member_code` |
+| `Untitledspreadsheet.xlsx` Sheet 2 | `cohort` on each member: 29 in **Pioneer Group**, 14 in **Cohort 1** |
+| Lesson documents 1–4 | 4 `training_sessions` (completed, online, required for training) plus the `meetings` row for each Google Meet code |
+| Attendance names | 105 `attendance_logs` rows (`source = 'historical_import'`), one per member per lesson |
+| Display names like “Betty”, “Zei Tunie” | 33 `member_aliases` rows, reused automatically by later imports |
+| Unmatched / excluded names | 9 `attendance_unmatched_entries` rows kept for review |
 
-## Dry run
+Attendance rows per lesson: Lesson 1 = 31, Lesson 2 = 30, Lesson 3 = 23,
+Lesson 4 = 21. Lesson 1 lists Keisha twice (“Keisha Nyawira” and “Keisha
+Wahome”), so the export's 32 matched entries collapse to 31 members.
 
-Run from the repository root:
+**Excluded people:** Fatma Namanda Webbo is on the roster sheet and ALPHONCE
+AKILENG appears in the Lesson 1 export. Neither is created as a member. Their
+attendance lines are recorded as `ignored` review entries instead of being
+silently dropped.
+
+**Names to review** (not on the roster, so no member is invented): `Mr Mittens`
+(Lesson 1), `Mposi Domnick O.` (Lessons 2 and 3), `K K` (Lesson 4), and the
+trainer hosting each session (`Sheila Ngumi Ask A Counselor…`).
+
+## Migration order
+
+Migrations apply in filename (version) order. `supabase db push` does this for
+you and skips versions the project already has.
+
+**Already applied on the linked project** — listed so the order is explicit:
+
+1. `20261009201701_create_meeting_persistence.sql` (history placeholder)
+2. `20261009201833_add_attendance_unique_key.sql` (history placeholder)
+3. `20261026165415_init_daraja_schema.sql`
+4. `20261026165422_enable_deny_by_default_rls.sql`
+5. `20261028125930_modules_attendance_content.sql` (history placeholder)
+6. `20261028130009_training_session_eligibility.sql`
+7. `20261028130037_expand_user_roles.sql`
+8. `20261028150000_modules_attendance_content.sql`
+9. `20261102093000_add_member_profile_fields.sql`
+10. `20261117000000_student_reach_out.sql`
+
+**New for this data**, in this order:
+
+11. `20261117120000_attendance_import_schema.sql` — adds `users.member_code`,
+    `users.cohort`, `attendance_logs.source_label`, and the `member_aliases` and
+    `attendance_unmatched_entries` tables (RLS enabled, no browser access).
+12. `20261117120100_seed_member_roster.sql` — the 43 members and their cohorts.
+13. `20261117120200_seed_lesson_attendance.sql` — the 4 lessons, 4 meetings, 105
+    attendance rows, 33 aliases and 9 review entries.
+
+Every statement is additive and idempotent: sessions match on
+`(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on
+`alias_key`, and attendance is only inserted when that member has no row for the
+session. Running them twice is safe.
+
+### Option A — Supabase CLI (recommended)
+
+```bash
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
+
+`db push` runs only the pending versions, in order. To target a database without
+linking:
+
+```bash
+npx supabase db push --db-url "postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres"
+```
+
+### Option B — SQL editor or psql
+
+New project: run every file in the list above in order.
+
+Existing project (the linked one): run only migrations 11–13, in order.
+
+```bash
+for f in supabase/migrations/20261117120000_attendance_import_schema.sql \
+         supabase/migrations/20261117120100_seed_member_roster.sql \
+         supabase/migrations/20261117120200_seed_lesson_attendance.sql; do
+  psql "postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres" -v ON_ERROR_STOP=1 -f "$f"
+done
+```
+
+In the dashboard SQL editor, paste and run each of the three files in the same
+order, waiting for each to finish before starting the next.
+
+### Verify
+
+```sql
+select count(*) from public.users where source = 'daraja-member-roster';            -- 43
+select count(*) from public.users where lower(email) = 'fatmawebbo@gmail.com';      -- 0
+select cohort, count(*) from public.users where member_code is not null group by 1; -- Pioneer Group 29, Cohort 1 14
+select title, to_char(scheduled_at, 'YYYY-MM-DD') from public.training_sessions order by scheduled_at; -- 4 lessons
+select s.title, count(*)
+  from public.attendance_logs a
+  join public.training_sessions s on s.id = a.session_id
+ group by 1 order by 1;                                                             -- 31 / 30 / 23 / 21
+select count(*) from public.member_aliases;                                         -- 33
+select count(*) from public.attendance_unmatched_entries;                            -- 9
+```
+
+Then open **Attendance data** in the facilitator dashboard (`/facilitator/data`):
+the roster, the four lessons and the review list appear, searchable by name,
+email, phone or cohort.
+
+## Importing later exports in the app
+
+Facilitator and admin accounts reach it from the **Data** tab or
+`/facilitator/data`:
+
+1. Choose **Lesson attendance (.docx)** or **Member roster (.xlsx)**.
+2. Select the file(s) and press **Preview**. The preview lists who is new, who is
+   already in the app, who is excluded, and which display names have no roster
+   match. Previewing writes nothing.
+3. Press **Confirm import** to write the approved batch.
+
+Names are resolved in this order: the document's own email column, then its
+official member name column, then an alias saved by an earlier import, then the
+built-in alias map, then an exact roster name. Excluded people are never
+created. Unmatched names are stored for review rather than guessed into the
+roster, and confirming needs the migrations above.
+
+## Importing from the terminal
 
 ```bash
 npm run import:data --workspace @daraja/api -- \
-  --members "/path/to/members.xlsx" \
-  --attendance="/path/to/lesson-1.docx" \
-  --attendance="/path/to/lesson-2.docx" \
-  --attendance="/path/to/lesson-3.docx"
+  --members "Untitledspreadsheet.xlsx" \
+  --attendance="Lesson 1.docx" --attendance="Lesson 2.docx" \
+  --attendance="Lesson 3.docx" --attendance="Lesson 4.docx"
 ```
 
-The dry run prints the active member count, lesson dates, matched attendance rows, and unresolved labels. Review this output before applying.
+That is a dry run: it prints the roster delta, per-lesson matched/unmatched
+counts and every name needing review. Add `--apply` to write, after applying the
+migrations. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are read from the API
+environment; the service-role key stays server-side.
 
-## Apply
-
-After applying the latest Supabase migrations and reviewing the dry-run output:
-
-```bash
-npm run import:data --workspace @daraja/api -- \
-  --members "/path/to/members.xlsx" \
-  --attendance="/path/to/lesson-1.docx" \
-  --attendance="/path/to/lesson-2.docx" \
-  --attendance="/path/to/lesson-3.docx" \
-  --apply
-```
-
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be available to the API process. The service-role key is server-only and must never be placed in the web application's environment.
-
-The import is designed to be rerunnable. It does not set passwords or send invitations; an administrator must activate and provision the imported accounts separately.
+The importer does not create Auth accounts or send invitations. Roster rows are
+`public.users` records with `role = 'student'` and `status = 'active'`, matched
+by email, so a person who later signs in with the same address keeps the same
+membership record.
