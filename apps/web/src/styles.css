@@ -344,3 +344,114 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
   .metric-card strong { font-size: 2rem; }
   .support-card { grid-column: auto; }
 }
+
+/* ── Role gate ─────────────────────────────────────────────── */
+.role-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: clamp(26px, 6vw, 64px) 20px calc(clamp(26px, 6vw, 64px) + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 10% 4%, rgba(194, 101, 42, .10), transparent 42%),
+    radial-gradient(circle at 92% 88%, rgba(46, 111, 94, .12), transparent 46%),
+    var(--background);
+}
+.role-gate-inner {
+  display: grid;
+  justify-items: center;
+  gap: clamp(26px, 4vw, 40px);
+  width: min(100%, 900px);
+  text-align: center;
+}
+.role-gate-header { display: grid; justify-items: center; gap: 13px; }
+.role-gate-header .brand-badge { width: 58px; height: 58px; border-radius: 20px; font-size: 1.9rem; }
+.role-gate-header h1 {
+  max-width: 22ch;
+  font-size: clamp(2.1rem, 5vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -.045em;
+}
+.role-gate-header .muted { max-width: 54ch; }
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  width: 100%;
+}
+.role-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: hidden;
+  padding: clamp(24px, 3vw, 32px);
+  border: 1px solid #e7dfd5;
+  border-radius: 22px;
+  background: linear-gradient(160deg, #ffffff 0%, #fdfaf5 100%);
+  box-shadow: var(--shadow);
+  text-align: left;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.role-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+}
+.role-card::after {
+  content: '';
+  position: absolute;
+  right: -46px;
+  bottom: -52px;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.role-card.student::before { background: #2e6f5e; }
+.role-card.student::after { background: rgba(46, 111, 94, .09); }
+.role-card.facilitator::before { background: #3b4d7a; }
+.role-card.facilitator::after { background: rgba(59, 77, 122, .09); }
+.role-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-elevated); }
+.role-card.student:hover { border-color: #d8ebe4; }
+.role-card.facilitator:hover { border-color: #d4dcf0; }
+.role-card:focus-visible { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(194, 101, 42, .16); }
+.role-motif { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; font-size: 1.3rem; }
+.role-card.student .role-motif { background: #d8ebe4; color: #2e6f5e; }
+.role-card.facilitator .role-motif { background: #d4dcf0; color: #3b4d7a; }
+.role-label {
+  color: var(--ink);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.role-copy { color: var(--muted); font-size: .9rem; line-height: 1.6; }
+.role-action { margin-top: 6px; font-size: .78rem; font-weight: 800; }
+.role-card.student .role-action { color: #2e6f5e; }
+.role-card.facilitator .role-action { color: #3b4d7a; }
+.role-footnote { color: var(--quiet); font-size: .74rem; font-weight: 600; }
+
+/* ── Header role controls ──────────────────────────────────── */
+.header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.module-badge { padding: 8px 12px; border: 1px solid transparent; border-radius: 999px; font-size: .7rem; font-weight: 800; white-space: nowrap; }
+.module-badge.sage { border-color: #d8ebe4; background: #eef6f2; color: #2e6f5e; }
+.module-badge.indigo { border-color: #d4dcf0; background: #eef1f9; color: #3b4d7a; }
+.pill-button {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .82);
+  color: var(--ink);
+  font-size: .74rem;
+  font-weight: 800;
+  transition: background .2s ease, border-color .2s ease;
+}
+.pill-button:hover { border-color: rgba(194, 101, 42, .45); background: #f6f0e8; }
+.auth-card .ghost-button { border: 1px solid var(--line); background: transparent; color: var(--quiet); text-align: center; }
+.auth-card .ghost-button:hover { background: #f6f0e8; color: var(--ink); }
+
+@media (max-width: 760px) {
+  .role-grid { grid-template-columns: 1fr; }
+  .header-actions { justify-content: flex-start; }
+}

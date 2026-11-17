@@ -2,6 +2,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 
+import { RoleSelector } from './RoleSelector';
+import { readStoredPortal, storePortal, type Portal } from './portal';
+
 type ModuleKey = 'module1' | 'student';
 type Module1Role = 'admin' | 'facilitator';
 type StudentRole = 'student';
@@ -46,7 +49,8 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
-  const [module, setModule] = useState<ModuleKey>('module1');
+  const [portal, setPortal] = useState<Portal | null>(readStoredPortal);
+  const module: ModuleKey = portal === 'student' ? 'student' : 'module1';
   const [module1Role, setModule1Role] = useState<Module1Role>('facilitator');
   const [studentRole, setStudentRole] = useState<StudentRole>('student');
   const [view, setView] = useState<View>('overview');
@@ -271,9 +275,22 @@ export default function App() {
     }
   }
 
+  function selectPortal(next: Portal) {
+    storePortal(next);
+    setPortal(next);
+    setView('overview');
+  }
+
+  function switchRole() {
+    storePortal(null);
+    setPortal(null);
+  }
+
   const nav = useMemo(() => module === 'module1'
     ? [['overview', 'Overview'], ['qr', 'QR check-in'], ['scanner', 'Admin scanner'], ['training', 'Training room']]
     : [['overview', 'Overview'], ['library', 'Learning hub']], [module]);
+
+  if (!portal) return <RoleSelector onSelect={selectPortal} />;
 
   const showModule1Auth = module === 'module1' && !user && supabase;
 
@@ -289,6 +306,7 @@ export default function App() {
           <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
           {authError && <p className="error-text">{authError}</p>}
           <button type="submit">Sign in</button>
+          <button type="button" className="ghost-button" onClick={switchRole}>Switch role</button>
         </form>
       </main>
     );
@@ -306,8 +324,8 @@ export default function App() {
         </div>
 
         <div className="module-switcher">
-          <button type="button" className={module === 'module1' ? 'module-button active' : 'module-button'} onClick={() => setModule('module1')}>Module 1</button>
-          <button type="button" className={module === 'student' ? 'module-button active' : 'module-button'} onClick={() => setModule('student')}>Student portal</button>
+          <button type="button" className={module === 'module1' ? 'module-button active' : 'module-button'} onClick={() => selectPortal('facilitator')}>Module 1</button>
+          <button type="button" className={module === 'student' ? 'module-button active' : 'module-button'} onClick={() => selectPortal('student')}>Student portal</button>
         </div>
 
         {module === 'module1' ? (
@@ -343,7 +361,6 @@ export default function App() {
           <span className="status-label">System status</span>
           <strong>{status}</strong>
         </div>
-        {module === 'module1' && supabase && <button className="ghost-button" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}
       </aside>
 
       <section className="content-panel">
@@ -352,7 +369,14 @@ export default function App() {
             <p className="viewer-kicker">{module === 'module1' ? 'Facilitator and admin console' : 'Student learning space'}</p>
             <h2>{nav.find(([key]) => key === view)?.[1] ?? 'Workspace'}</h2>
           </div>
-          <span className="live-indicator"><i />{module === 'module1' ? 'Secure session' : 'Public learning portal'}</span>
+          <div className="header-actions">
+            <span className={module === 'module1' ? 'module-badge indigo' : 'module-badge sage'}>
+              {module === 'module1' ? 'Module 1 · Facilitator/Admin' : 'Student Portal'}
+            </span>
+            <span className="live-indicator"><i />{module === 'module1' ? 'Secure session' : 'Public learning portal'}</span>
+            <button type="button" className="pill-button" onClick={switchRole}>Switch role</button>
+            {module === 'module1' && supabase && <button type="button" className="pill-button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}
+          </div>
         </header>
 
         {module === 'module1' ? (
