@@ -88,16 +88,10 @@ a { color: inherit; }
 .brand-badge {
   width: 48px;
   height: 48px;
-  display: grid;
-  place-items: center;
   flex: 0 0 auto;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #c2652a, #8a4518 72%, #2a2420);
-  color: white;
-  font-family: 'EB Garamond', Georgia, serif;
-  font-size: 1.6rem;
-  font-weight: 700;
-  box-shadow: 0 9px 22px rgba(194, 101, 42, .2);
+  border-radius: 50%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 8px rgba(58, 48, 42, .14));
 }
 .eyebrow, .viewer-kicker, .status-label {
   color: var(--primary);

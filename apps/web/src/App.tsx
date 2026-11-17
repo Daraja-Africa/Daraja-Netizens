@@ -280,13 +280,15 @@ export default function App() {
   );
   const activeStudentKey = studentRoute ? (studentRoute.kind === 'guide' ? 'hub' : studentRoute.kind) : 'overview';
 
+  if (!portal) return <RoleSelector onSelect={selectPortal} />;
+
   const showModule1Auth = module === 'module1' && !user && supabase;
 
   if (showModule1Auth) {
     return (
       <main className="auth-shell">
         <form className="auth-card" onSubmit={signIn}>
-          <div className="brand-badge">D</div>
+          <img className="brand-badge" src="/daraja-logo.png" alt="" />
           <p className="eyebrow">Daraja Netizens</p>
           <h1>Module 1 access</h1>
           <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
@@ -294,6 +296,7 @@ export default function App() {
           <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
           {authError && <p className="error-text">{authError}</p>}
           <button type="submit">Sign in</button>
+          <button type="button" className="ghost-button" onClick={switchRole}>Switch role</button>
         </form>
       </main>
     );
@@ -303,7 +306,7 @@ export default function App() {
     <main className={module === 'module1' ? 'app-shell with-fab-nav' : 'app-shell'}>
       <aside className="app-sidebar">
         <div className="brand-wrap">
-          <div className="brand-badge">D</div>
+          <img className="brand-badge" src="/daraja-logo.png" alt="" />
           <div>
             <p className="eyebrow">Module workspace</p>
             <h1>Daraja Netizens</h1>
@@ -388,7 +391,6 @@ export default function App() {
           <span className="status-label">System status</span>
           <strong>{status}</strong>
         </div>
-        {module === 'module1' && supabase && <button className="ghost-button" type="button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}
       </aside>
 
       <section className="content-panel">
@@ -403,7 +405,14 @@ export default function App() {
                 : studentNav.find((item) => item.key === activeStudentKey)?.label ?? 'Student portal'}
             </h2>
           </div>
-          <span className="live-indicator"><i />{module === 'module1' ? 'Secure session' : 'Public learning portal'}</span>
+          <div className="header-actions">
+            <span className={module === 'module1' ? 'module-badge indigo' : 'module-badge sage'}>
+              {module === 'module1' ? 'Module 1 · Facilitator/Admin' : 'Student Portal'}
+            </span>
+            <span className="live-indicator"><i />{module === 'module1' ? 'Secure session' : 'Public learning portal'}</span>
+            <button type="button" className="pill-button" onClick={switchRole}>Switch role</button>
+            {module === 'module1' && supabase && <button type="button" className="pill-button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}
+          </div>
         </header>
 
         {module === 'module1' ? (
