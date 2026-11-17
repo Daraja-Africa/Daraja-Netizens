@@ -8,12 +8,14 @@ import { config } from './config.js';
 import {
   createMeeting,
   createQrChallenge,
+  createStudentReachOutRequest,
   ensureUser,
   getContentFeed,
   getDashboardSummary,
   getEligibility,
   listTrainingSessions,
   getRoleDashboard,
+  getStudentSupportContacts,
   getSupportContacts,
   persistTelemetryRecord,
   redeemQrChallenge,
@@ -21,11 +23,23 @@ import {
   supabaseReady,
   upsertAttendance,
 } from './supabase.js';
+import {
+  studentGuides,
+  studentReachOutMethods,
+  studentReachOutTopics,
+  studentReachOutUrgencies,
+} from './studentContent.js';
 import { recordTelemetry } from './telemetry.js';
 import { requireAuth, type AuthenticatedRequest } from './auth.js';
 
 const app = express();
 const writeRequests = new Map<string, { startedAt: number; count: number }>();
+// Reach-out submissions are confidential and rare, so they get a tighter limit
+// than the general write limiter: a handful per contact detail, so one person
+// cannot flood the wellness team while everyone else stays unaffected.
+const reachOutRequests = new Map<string, { startedAt: number; count: number }>();
+const reachOutWindowMs = 15 * 60_000;
+const reachOutMax = 3;
 
 app.disable('x-powered-by');
 app.use((req, res, next) => {
@@ -71,6 +85,25 @@ const attendanceSchema = z.object({
   leftAt: z.string().datetime().optional(),
   presenceSeconds: z.number().int().nonnegative().optional(),
 });
+
+const reachOutSchema = z
+  .object({
+    name: z.string().trim().max(80).optional(),
+    contactMethod: z.enum(studentReachOutMethods),
+    contactDetail: z.string().trim().min(5).max(160),
+    topic: z.enum(studentReachOutTopics),
+    urgency: z.enum(studentReachOutUrgencies),
+    message: z.string().trim().min(10).max(2000),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.contactMethod === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.contactDetail)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['contactDetail'], message: 'Enter a valid email address' });
+    }
+    if (value.contactMethod !== 'email' && !/^\+?[0-9][0-9\s-]{6,19}$/.test(value.contactDetail)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['contactDetail'], message: 'Enter a valid phone number' });
+    }
+  });
 
 const telemetrySchema = z.object({
   eventType: z.enum(['CONFERENCE_JOINED', 'AUDIO_MUTED', 'AUDIO_UNMUTED', 'SCREEN_SHARE_STARTED', 'SCREEN_SHARE_STOPPED', 'CONFERENCE_LEFT']),
@@ -148,6 +181,72 @@ app.get('/api/v1/support/contacts', async (_req, res) => {
     console.error('Support contacts failed', error);
     return res.status(503).json({ error: 'Support contacts unavailable' });
   }
+});
+
+// Student Portal: Mental Health Educative Hub library. Public by design — the
+// module boundary keeps facilitator/stipend reporting out of this surface.
+app.get('/api/v1/student/content', (_req, res) => {
+  res.setHeader('cache-control', 'public, max-age=300');
+  return res.json({ items: studentGuides, source: 'curated' });
+});
+
+app.get('/api/v1/student/support-contacts', async (_req, res) => {
+  try {
+    return res.json(await getStudentSupportContacts());
+  } catch (error) {
+    console.error('Student support contacts failed', error);
+    return res.status(503).json({ error: 'Support contacts unavailable' });
+  }
+});
+
+// Confidential reach-out. Deliberately public so a student can ask for help
+// without signing in, and rate limited per contact detail so one person cannot
+// flood the wellness team (an IP key would lump every student behind the same
+// reverse proxy into a single bucket). Rows are written with the service-role
+// key only.
+app.post('/api/v1/student/reach-out', async (req, res) => {
+  const parsed = reachOutSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Please check the form and try again.',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const rateKey = parsed.data.contactDetail.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const now = Date.now();
+  if (reachOutRequests.size > 500) {
+    for (const [entryKey, entry] of reachOutRequests) {
+      if (now - entry.startedAt >= reachOutWindowMs) reachOutRequests.delete(entryKey);
+    }
+  }
+  const current = reachOutRequests.get(rateKey);
+  if (!current || now - current.startedAt >= reachOutWindowMs) {
+    reachOutRequests.set(rateKey, { startedAt: now, count: 1 });
+  } else if (current.count >= reachOutMax) {
+    res.setHeader('retry-after', Math.ceil((reachOutWindowMs - (now - current.startedAt)) / 1000));
+    return res.status(429).json({ error: 'You have already sent a few notes. Please try again later.' });
+  } else {
+    current.count += 1;
+  }
+
+  const reference = `DN-${randomUUID().slice(0, 6).toUpperCase()}`;
+  try {
+    await createStudentReachOutRequest({
+      reference,
+      name: parsed.data.name,
+      contactMethod: parsed.data.contactMethod,
+      contactDetail: parsed.data.contactDetail,
+      supportTopic: parsed.data.topic,
+      urgency: parsed.data.urgency,
+      message: parsed.data.message,
+    });
+  } catch (error) {
+    console.error('Student reach-out request failed', error);
+    return res.status(503).json({ error: 'We could not record that just now. Please try again.' });
+  }
+
+  return res.status(201).json({ ok: true, reference, receivedAt: new Date().toISOString() });
 });
 
 app.post('/api/v1/rooms/token', requireAuth(), async (req: AuthenticatedRequest, res) => {
