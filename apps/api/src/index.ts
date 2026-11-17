@@ -273,11 +273,11 @@ app.get('/api/v1/facilitator/dashboard', requireAuth(['admin', 'facilitator']), 
   }
 });
 
+// The challenge belongs to the physical session happening today, so the client
+// does not need to know a training session UUID.
 app.post('/api/v1/attendance/qr', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
-  const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid QR session payload' });
   try {
-    return res.status(201).json(await createQrChallenge({ sessionId: parsed.data.sessionId, facilitatorId: req.user!.id }));
+    return res.status(201).json(await createQrChallenge({ facilitatorId: req.user!.id }));
   } catch (error) {
     console.error('QR challenge creation failed', error);
     return res.status(503).json({ error: 'QR challenge unavailable' });

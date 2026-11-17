@@ -65,7 +65,7 @@ export default function App() {
   const [roomName, setRoomName] = useState('daraja-training-room');
   const [displayName, setDisplayName] = useState('Facilitator');
   const [roomEmail, setRoomEmail] = useState('facilitator@daraja.local');
-  const [sessionId, setSessionId] = useState('');
+  const [qrSession, setQrSession] = useState<{ id: string; title: string } | null>(null);
   const [qrToken, setQrToken] = useState('');
   const [qrImage, setQrImage] = useState('');
   const [scanToken, setScanToken] = useState('');
@@ -233,11 +233,11 @@ export default function App() {
   }
 
   async function generateQr() {
-    if (!sessionId) return setStatus('Enter a training session ID first');
     setIsBusy(true);
     try {
-      const data = await apiFetch('/api/v1/attendance/qr', accessToken, { method: 'POST', body: JSON.stringify({ sessionId }) });
+      const data = await apiFetch('/api/v1/attendance/qr', accessToken, { method: 'POST', body: JSON.stringify({}) });
       setQrToken(data.token);
+      setQrSession(data.session ?? null);
       setStatus('One-time QR challenge generated');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to generate QR');
@@ -464,7 +464,7 @@ export default function App() {
         {module === 'module1' ? (
           facilitatorRoute?.kind === 'data' ? <AttendanceData accessToken={accessToken} /> : facilitatorRoute?.kind === 'flashcards' ? <StudyFlashcards /> : <>
             {view === 'overview' && <Overview dashboard={dashboard} canFacilitate={canFacilitate} />}
-            {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">Display this challenge on the facilitator screen. It expires after sixty seconds and can only be redeemed once.</p><input placeholder="Training session UUID" value={sessionId} onChange={(event) => setSessionId(event.target.value)} /><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrImage ? <><img src={qrImage} alt="Attendance QR code" className="qr-image" /><code>{qrToken}</code></> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
+            {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">The challenge is issued for today's physical session. Display it on the facilitator screen: it expires after sixty seconds and can only be redeemed once.</p><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrImage ? <><img src={qrImage} alt="Attendance QR code" className="qr-image" /><code>{qrToken}</code>{qrSession && <span className="muted">Check-in for {qrSession.title}</span>}</> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
             {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Allow camera access to scan a one-time challenge, or use the manual token fallback. Most modern Chromium browsers support camera-based QR decoding; otherwise, use the manual token entry.</p><div className="scanner-frame"><video ref={videoRef} className="scanner-video" muted playsInline /><span>{cameraStatus}</span></div><button type="button" onClick={() => void startCamera()}>Start camera scanner</button><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li><li>Browsers without BarcodeDetector automatically fall back to manual token entry.</li></ul></div></section>}
             {view === 'training' && <section className="training-layout"><form className="feature-card" onSubmit={launchRoom}><p className="viewer-kicker">Virtual training room</p><h3>Join a secure Jitsi session</h3><label>Room name<input value={roomName} onChange={(event) => setRoomName(event.target.value)} /></label><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Email<input type="email" value={roomEmail} onChange={(event) => setRoomEmail(event.target.value)} /></label><button type="submit" disabled={isBusy}>{isBusy ? 'Launching…' : 'Launch training room'}</button></form><div className="jitsi-panel" ref={containerRef}><div className="empty-state"><strong>{meeting ? meeting.roomName : 'Meeting preview'}</strong><span>{meeting ? `Jitsi: ${meeting.jitsiDomain}` : 'Launch a room to begin'}</span></div></div></section>}
           </>
