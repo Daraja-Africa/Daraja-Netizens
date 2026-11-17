@@ -61,6 +61,12 @@ you and skips versions the project already has.
     `attendance_unmatched_entries`) from the placeholder uuid to the Auth uuid.
     Emails that are not on the roster are left alone, so no profile is invented.
     This must run **after** the roster seed, or the backfill has nothing to match.
+15. `20261117130000_reach_out_triage.sql` — adds `assigned_to`,
+    `first_response_at` and `closed_at` to `student_reach_out_requests` plus the
+    triage indexes, and creates `reach_out_access_log` (who opened or changed a
+    confidential note, RLS enabled with no browser access). The facilitator
+    Reach-out inbox at `/facilitator/reach-out` returns `409` with a
+    `migrationRequired` flag until this is applied.
 
 Every statement is additive and idempotent: sessions match on
 `(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on

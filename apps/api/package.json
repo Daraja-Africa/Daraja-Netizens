@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts",
+    "test": "SUPABASE_URL= SUPABASE_SERVICE_ROLE_KEY= tsx --test test/*.test.ts",
     "import:data": "tsx scripts/import-daraja-data.ts"
   },
   "dependencies": {

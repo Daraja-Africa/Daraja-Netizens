@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { config } from './config.js';
+import { calculateModuleOneEligibility } from './eligibility.js';
+import type { ReachOutNote } from './reachOut.js';
 import { fallbackSupportContacts, type StudentSupportContact } from './studentContent.js';
 
 let client: SupabaseClient | null = null;
@@ -20,14 +22,32 @@ export async function persistTelemetryRecord(payload: Record<string, unknown>) {
   return { ok: true, mode: 'supabase' };
 }
 
-export async function ensureUser(input: { id: string; email: string; fullName: string; role?: 'admin' | 'facilitator' | 'student' | 'participant' }) {
+/**
+ * Creates the profile row when it is missing and never touches an existing one.
+ *
+ * This used to be an upsert that wrote `role` on every call, which meant any
+ * authenticated request to a handler that passed `role: 'facilitator'`
+ * permanently promoted the caller. Role assignment belongs to the roster
+ * import and the admin path, never to a request that merely needs a profile.
+ */
+export async function ensureUser(input: { id: string; email: string; fullName: string }) {
   const supabase = getSupabaseClient();
-  if (!supabase) return { id: input.id, email: input.email, full_name: input.fullName, role: input.role ?? 'participant' };
-  const { data, error } = await supabase.from('users').upsert({
-    id: input.id, email: input.email, full_name: input.fullName, role: input.role ?? 'participant',
-  }).select().single();
-  if (error) throw error;
-  return data;
+  if (!supabase) return { id: input.id, email: input.email, full_name: input.fullName, role: 'student' };
+
+  const existing = await readProfileById(input.id);
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('users')
+    .insert({ id: input.id, email: input.email, full_name: input.fullName })
+    .select(PROFILE_COLUMNS)
+    .single();
+  if (!error) return data;
+
+  // A concurrent create, or an email that already belongs to another profile.
+  const raced = await readProfileById(input.id);
+  if (raced) return raced;
+  throw error;
 }
 
 export type AuthorizedProfile = {
@@ -197,52 +217,13 @@ export async function getDashboardSummary() {
   return { meetings: meetings.data ?? [], attendance: attendance.data ?? [], telemetry: telemetry.data ?? [], source: 'supabase' };
 }
 
-export function calculateModuleOneEligibility(input: {
-  trainingSessions: Array<{ id: string; required_for_training?: boolean | null; required_for_stipend?: boolean | null; session_type?: string | null; }>; 
-  attendanceRecords: Array<{ meeting_id: string; session_id?: string | null; presence_seconds?: number | null; user_id?: string | null; }>;
-}) {
-  const requiredTraining = input.trainingSessions.filter((session) => session.required_for_training);
-  const requiredStipend = input.trainingSessions.filter((session) => session.required_for_stipend);
-  const attendanceCount = (input.attendanceRecords ?? []).filter((record) => (record.presence_seconds ?? 0) > 0).length;
-  const attendedTrainingIds = new Set(
-    (input.attendanceRecords ?? [])
-      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredTraining.some((session) => session.id === (record.session_id ?? record.meeting_id)))
-      .map((record) => record.session_id ?? record.meeting_id)
-  );
-  const attendedStipendIds = new Set(
-    (input.attendanceRecords ?? [])
-      .filter((record) => (record.presence_seconds ?? 0) > 0 && requiredStipend.some((session) => session.id === (record.session_id ?? record.meeting_id)))
-      .map((record) => record.session_id ?? record.meeting_id)
-  );
-
-  const trainingThreshold = requiredTraining.length ? Math.max(1, Math.ceil(requiredTraining.length * (7 / 8))) : 0;
-  const stipendThreshold = requiredStipend.length ? Math.max(1, Math.ceil(requiredStipend.length * (2 / 3))) : 0;
-
-  const trainingProgress = requiredTraining.length ? Math.round((attendedTrainingIds.size / requiredTraining.length) * 100) : 0;
-  const stipendProgress = requiredStipend.length ? Math.round((attendedStipendIds.size / requiredStipend.length) * 100) : 0;
-
-  return {
-    attendanceCount,
-    requiredTraining: requiredTraining.length,
-    requiredStipend: requiredStipend.length,
-    trainingThreshold,
-    stipendThreshold,
-    trainingProgress,
-    stipendProgress,
-    trainingEligible: requiredTraining.length ? attendedTrainingIds.size >= trainingThreshold : false,
-    stipendEligible: requiredStipend.length ? attendedStipendIds.size >= stipendThreshold : false,
-    attendedTraining: attendedTrainingIds.size,
-    attendedStipend: attendedStipendIds.size,
-  };
-}
-
 export async function getRoleDashboard(userId: string) {
   const supabase = getSupabaseClient();
   if (!supabase) return { stats: { physicalSessions: 0, onlineSessions: 0, attendanceRate: 0, trainingProgress: 0, stipendProgress: 0 }, sessions: [], source: 'memory' };
   const [meetings, attendance, sessions] = await Promise.all([
     supabase.from('meetings').select('id, room_key, title, scheduled_start, status, meeting_type').eq('host_id', userId).order('scheduled_start', { ascending: false }).limit(50),
     supabase.from('attendance_logs').select('id, meeting_id, session_id, user_id, joined_at, left_at, presence_seconds, source').eq('user_id', userId).order('joined_at', { ascending: false }).limit(200),
-    supabase.from('training_sessions').select('id, title, session_type, scheduled_at, status, required_for_training, required_for_stipend').order('scheduled_at', { ascending: false }).limit(50),
+    supabase.from('training_sessions').select('id, title, session_type, scheduled_at, status, required_for_training, required_for_stipend, week_key').order('scheduled_at', { ascending: false }).limit(50),
   ]);
   const error = meetings.error ?? attendance.error ?? sessions.error;
   if (error) throw error;
@@ -250,7 +231,7 @@ export async function getRoleDashboard(userId: string) {
   const attended = (attendance.data ?? []).filter((item) => item.presence_seconds > 0).length;
   const eligibility = calculateModuleOneEligibility({
     trainingSessions: sessionRows,
-    attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, session_id: item.session_id, presence_seconds: item.presence_seconds, user_id: item.user_id })),
+    attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, session_id: item.session_id, presence_seconds: item.presence_seconds })),
   });
   return {
     stats: {
@@ -305,14 +286,13 @@ async function resolvePhysicalSession() {
   return created.data;
 }
 
-export async function createQrChallenge(input: { facilitatorId: string }) {
+export async function createQrChallenge(input: { sessionId: string; facilitatorId: string }) {
   const supabase = getSupabaseClient();
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
-  const session = await resolvePhysicalSession();
-  if (!supabase) return { id: crypto.randomUUID(), session_id: session.id, token: crypto.randomUUID(), expires_at: expiresAt, session };
-  const { data, error } = await supabase.from('qr_challenges').insert({ session_id: session.id, facilitator_id: input.facilitatorId, expires_at: expiresAt }).select('id, session_id, token, expires_at').single();
+  if (!supabase) return { id: crypto.randomUUID(), session_id: input.sessionId, token: crypto.randomUUID(), expires_at: expiresAt };
+  const { data, error } = await supabase.from('qr_challenges').insert({ session_id: input.sessionId, facilitator_id: input.facilitatorId, expires_at: expiresAt }).select('id, session_id, token, expires_at').single();
   if (error) throw error;
-  return { ...data, session };
+  return data;
 }
 
 export async function listTrainingSessions() {
@@ -356,19 +336,30 @@ export async function getEligibility(userId: string) {
   };
   const [sessions, attendance] = await Promise.all([
     supabase.from('training_sessions').select('id, session_type, required_for_training, required_for_stipend, week_key, is_makeup').order('scheduled_at'),
-    supabase.from('attendance_logs').select('session_id, presence_seconds').eq('user_id', userId).gt('presence_seconds', 0),
+    supabase.from('attendance_logs').select('session_id, meeting_id, presence_seconds').eq('user_id', userId).gt('presence_seconds', 0),
   ]);
   const error = sessions.error ?? attendance.error;
   if (error) throw error;
-  const attendedIds = new Set((attendance.data ?? []).map((row) => row.session_id).filter(Boolean));
-  const trainingSessions = (sessions.data ?? []).filter((row) => row.required_for_training);
-  const attendedTraining = trainingSessions.filter((row) => attendedIds.has(row.id)).length;
-  const stipendWeeks = new Set((sessions.data ?? [])
-    .filter((row) => row.required_for_stipend && row.session_type === 'physical' && row.week_key && attendedIds.has(row.id))
-    .map((row) => row.week_key));
+  // Same engine, same matching rule and same thresholds as the dashboard.
+  const eligibility = calculateModuleOneEligibility({
+    trainingSessions: sessions.data ?? [],
+    attendanceRecords: attendance.data ?? [],
+  });
   return {
-    training: { attended: attendedTraining, required: 7, total: Math.max(trainingSessions.length, 8), ratio: Math.round((attendedTraining / Math.max(trainingSessions.length, 8)) * 100), eligible: attendedTraining >= 7 },
-    stipend: { attendedWeeks: stipendWeeks.size, requiredWeeks: 4, totalWeeks: 6, ratio: Math.round((stipendWeeks.size / 6) * 100), eligible: stipendWeeks.size >= 4 },
+    training: {
+      attended: eligibility.attendedTraining,
+      required: eligibility.trainingThreshold,
+      total: eligibility.trainingTotal,
+      ratio: eligibility.trainingProgress,
+      eligible: eligibility.trainingEligible,
+    },
+    stipend: {
+      attendedWeeks: eligibility.attendedStipend,
+      requiredWeeks: eligibility.stipendThreshold,
+      totalWeeks: eligibility.stipendTotalWeeks,
+      ratio: eligibility.stipendProgress,
+      eligible: eligibility.stipendEligible,
+    },
     source: 'supabase',
   };
 }
@@ -450,5 +441,132 @@ export async function createStudentReachOutRequest(input: {
   return { ok: true as const, mode: 'supabase' as const, reference: input.reference };
 }
 
-export const supabaseReady = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
-export const dataStore = { postgres: supabaseReady ? 'Supabase connected' : 'Supabase credentials missing', redis: 'Redis Streams queue ready for burst telemetry', jitsi: config.jitsiDomain };
+/** Credentials are present. This says nothing about whether Postgres answers. */
+export const supabaseConfigured = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
+
+export type ReadinessResult = { ok: boolean; latencyMs: number; detail: string };
+
+const readinessCache = { checkedAt: 0, result: null as ReadinessResult | null };
+const READINESS_TTL_MS = 5_000;
+const READINESS_TIMEOUT_MS = 2_000;
+
+async function probeDatabase(): Promise<ReadinessResult> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { ok: false, latencyMs: 0, detail: 'Supabase credentials missing' };
+
+  const startedAt = Date.now();
+  try {
+    // A cheap round-trip: any answer from Postgres means the instance is serving.
+    const query = supabase.from('users').select('id', { head: true, count: 'exact' }).limit(1);
+    const result = await Promise.race([
+      query.then((response) => ({ error: response.error?.message ?? null })),
+      new Promise<{ error: string }>((resolve) =>
+        setTimeout(() => resolve({ error: `Database probe timed out after ${READINESS_TIMEOUT_MS}ms` }), READINESS_TIMEOUT_MS)
+      ),
+    ]);
+    const latencyMs = Date.now() - startedAt;
+    if (result.error) return { ok: false, latencyMs, detail: result.error };
+    return { ok: true, latencyMs, detail: 'database answered' };
+  } catch (error) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      detail: error instanceof Error ? error.message : 'Database probe failed',
+    };
+  }
+}
+
+/**
+ * Readiness means Postgres answers, not that the environment variables are
+ * non-empty. Results are cached briefly so a load balancer polling every second
+ * cannot become a query amplifier.
+ */
+export async function checkSupabaseReadiness(force = false): Promise<ReadinessResult> {
+  const now = Date.now();
+  if (!force && readinessCache.result && now - readinessCache.checkedAt < READINESS_TTL_MS) {
+    return readinessCache.result;
+  }
+  const result = await probeDatabase();
+  readinessCache.checkedAt = Date.now();
+  readinessCache.result = result;
+  return result;
+}
+
+const REACH_OUT_COLUMNS =
+  'id, reference, name, contact_method, contact_detail, support_topic, urgency, message, status, assigned_to, first_response_at, closed_at, created_at';
+
+/** True when a query failed because the triage migration has not been applied yet. */
+export function isMissingReachOutSchema(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: string; message?: string };
+  return (
+    code === '42703' ||
+    code === '42P01' ||
+    code === 'PGRST204' ||
+    code === 'PGRST205' ||
+    Boolean(message && /schema cache|does not exist/i.test(message))
+  );
+}
+
+export async function listReachOutNotes(input: { status?: string; limit?: number } = {}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { notes: [] as ReachOutNote[], source: 'memory' as const };
+  let query = supabase
+    .from('student_reach_out_requests')
+    .select(REACH_OUT_COLUMNS)
+    .order('created_at', { ascending: true })
+    .limit(input.limit ?? 100);
+  if (input.status && input.status !== 'all') query = query.eq('status', input.status);
+  const { data, error } = await query;
+  if (error) throw error;
+  return { notes: (data ?? []) as ReachOutNote[], source: 'supabase' as const };
+}
+
+export async function getReachOutNote(id: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('student_reach_out_requests')
+    .select(REACH_OUT_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as ReachOutNote | null) ?? null;
+}
+
+export async function updateReachOutNote(id: string, patch: Partial<ReachOutNote>) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('student_reach_out_requests')
+    .update(patch)
+    .eq('id', id)
+    .select(REACH_OUT_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as ReachOutNote;
+}
+
+/**
+ * Records who opened or changed a confidential note. The table is deny-by-default
+ * like the notes themselves, and a failed audit write is logged rather than
+ * surfaced: the supporter keeps working, the gap is visible in the log.
+ */
+export async function recordReachOutAccess(input: {
+  noteId: string;
+  actorId: string;
+  action: 'opened' | 'assigned' | 'status_changed';
+  detail?: string;
+}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return;
+  const { error } = await supabase.from('reach_out_access_log').insert({
+    note_id: input.noteId,
+    actor_id: input.actorId,
+    action: input.action,
+    detail: input.detail ?? null,
+  });
+  if (error) throw error;
+}
+
+export const dataStore = { postgres: supabaseConfigured ? 'Supabase configured' : 'Supabase credentials missing', redis: 'Redis Streams queue ready for burst telemetry', jitsi: config.jitsiDomain };

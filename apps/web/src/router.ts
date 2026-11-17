@@ -4,6 +4,25 @@ export type StudentRoute =
   | { kind: 'overview' | 'hub' | 'reach-out' }
   | { kind: 'guide'; slug: string };
 
+export type AdminPage =
+  | 'overview'
+  | 'members'
+  | 'facilitators'
+  | 'program'
+  | 'attendance'
+  | 'data'
+  | 'check-in'
+  | 'scanner'
+  | 'training';
+
+export type FacilitatorPage = 'overview' | 'meetings' | 'check-in' | 'scanner' | 'training' | 'flashcards';
+
+export type WorkspaceArea = 'admin' | 'facilitator';
+
+export type WorkspaceRoute =
+  | { area: 'admin'; page: AdminPage }
+  | { area: 'facilitator'; page: FacilitatorPage };
+
 const prefix = '/student';
 
 export function parseStudentRoute(pathname: string): StudentRoute | null {
@@ -17,27 +36,6 @@ export function parseStudentRoute(pathname: string): StudentRoute | null {
   if (clean === `${prefix}/reach-out`) return { kind: 'reach-out' };
   return { kind: 'overview' };
 }
-
-/** Screens that only an administrator can open. */
-export type AdminPage =
-  | 'overview'
-  | 'members'
-  | 'facilitators'
-  | 'program'
-  | 'attendance'
-  | 'data'
-  | 'check-in'
-  | 'scanner'
-  | 'training';
-
-/** Screens a facilitator runs their sessions from. */
-export type FacilitatorPage = 'overview' | 'meetings' | 'check-in' | 'scanner' | 'training' | 'flashcards';
-
-export type WorkspaceArea = 'admin' | 'facilitator';
-
-export type WorkspaceRoute =
-  | { area: 'admin'; page: AdminPage }
-  | { area: 'facilitator'; page: FacilitatorPage };
 
 const adminPages: Record<string, AdminPage> = {
   '': 'overview',
@@ -75,8 +73,16 @@ export function parseWorkspaceRoute(pathname: string): WorkspaceRoute | null {
   return null;
 }
 
-export function workspaceHome(area: WorkspaceArea) {
-  return area === 'admin' ? '/admin' : '/facilitator';
+export type FacilitatorRoute = { kind: 'flashcards' } | { kind: 'data' } | { kind: 'reach-out' };
+
+const facilitatorPrefix = '/facilitator';
+
+export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === `${facilitatorPrefix}/flashcards`) return { kind: 'flashcards' };
+  if (clean === `${facilitatorPrefix}/data`) return { kind: 'data' };
+  if (clean === `${facilitatorPrefix}/reach-out`) return { kind: 'reach-out' };
+  return null;
 }
 
 export function navigate(path: string) {

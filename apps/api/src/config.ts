@@ -15,8 +15,16 @@ export const config = {
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   writeRateLimitWindowMs: Number(process.env.WRITE_RATE_LIMIT_WINDOW_MS ?? 60_000),
   writeRateLimitMax: Number(process.env.WRITE_RATE_LIMIT_MAX ?? 120),
+  // Optional external channel (email/SMS relay, chat or incident webhook) used
+  // to page the wellness team when a confidential note arrives. Unset means the
+  // alert is written to the structured log only.
+  reachOutAlertWebhook: process.env.REACH_OUT_ALERT_WEBHOOK ?? '',
 };
 
 if (config.nodeEnv === 'production' && (!config.jwtSecret || !config.supabaseServiceRoleKey)) {
   throw new Error('JWT_SECRET and SUPABASE_SERVICE_ROLE_KEY are required in production');
+}
+
+if (config.nodeEnv === 'production' && process.env.ALLOW_DEMO_AUTH === '1') {
+  throw new Error('ALLOW_DEMO_AUTH must never be set in production: it serves an unauthenticated facilitator console');
 }
