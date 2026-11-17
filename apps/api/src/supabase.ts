@@ -30,6 +30,140 @@ export async function ensureUser(input: { id: string; email: string; fullName: s
   return data;
 }
 
+export type AuthorizedProfile = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: 'admin' | 'facilitator' | 'student' | 'participant' | 'host';
+};
+
+const PROFILE_COLUMNS = 'id, email, full_name, role';
+const SEEDED_COLUMNS = `${PROFILE_COLUMNS}, created_at, national_id, phone, status, source, member_code, cohort`;
+
+async function readProfileById(id: string): Promise<AuthorizedProfile | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.from('users').select(PROFILE_COLUMNS).eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data as AuthorizedProfile | null) ?? null;
+}
+
+/**
+ * Finds the allowlisted profile behind an authenticated Supabase user.
+ *
+ * Roster profiles are seeded before anyone signs in, so their ids are
+ * placeholders. When the Auth uuid has no profile yet but the email matches a
+ * seeded profile, that profile and everything referencing it move onto the Auth
+ * uuid (the same reconciliation the database trigger runs), so an existing
+ * login heals even before the SQL trigger exists.
+ *
+ * Returns null when the account is not on the allowlist; callers must deny it.
+ */
+export async function resolveOrSyncAuthorizedUser(input: {
+  id: string;
+  email?: string | null;
+  fullName?: string | null;
+}): Promise<AuthorizedProfile | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  const linked = await readProfileById(input.id);
+  if (linked) return linked;
+
+  const email = input.email?.trim().toLowerCase();
+  if (!email) return null;
+
+  const { data: seeded, error: seededError } = await supabase
+    .from('users')
+    .select(SEEDED_COLUMNS)
+    .ilike('email', email.replace(/([\\%_])/g, '\\$1'))
+    .maybeSingle();
+  if (seededError) throw seededError;
+  if (!seeded) return null;
+
+  return reconcileSeededProfile(seeded, { ...input, email });
+}
+
+type SeededProfileRow = AuthorizedProfile & {
+  created_at: string | null;
+  national_id: string | null;
+  phone: string | null;
+  status: string | null;
+  source: string | null;
+  member_code: string | null;
+  cohort: string | null;
+};
+
+/**
+ * Moves a seeded profile onto the Auth uuid. Prefers the database function so
+ * the whole move is one transaction, and only falls back to individual writes
+ * when that migration has not been applied to this database yet.
+ */
+async function reconcileSeededProfile(
+  seed: SeededProfileRow,
+  input: { id: string; email: string; fullName?: string | null },
+): Promise<AuthorizedProfile> {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('Supabase is not configured');
+
+  const { error: rpcError } = await supabase.rpc('reconcile_seeded_profile', {
+    p_auth_id: input.id,
+    p_email: input.email,
+    p_full_name: input.fullName ?? null,
+  });
+  if (!rpcError) {
+    const profile = await readProfileById(input.id);
+    if (!profile) throw new Error('Profile reconciliation did not produce a profile');
+    return profile;
+  }
+  if (rpcError.code !== 'PGRST202') throw rpcError;
+
+  // Release the unique email and member_code before the replacement takes them.
+  const { error: releaseError } = await supabase
+    .from('users')
+    .update({ email: `${seed.id}@migrated.local`, member_code: null })
+    .eq('id', seed.id);
+  if (releaseError) throw releaseError;
+
+  const { data: linked, error: insertError } = await supabase
+    .from('users')
+    .insert({
+      id: input.id,
+      email: input.email,
+      full_name: seed.full_name?.trim() || input.fullName?.trim() || input.email,
+      role: seed.role,
+      created_at: seed.created_at,
+      national_id: seed.national_id,
+      phone: seed.phone,
+      status: seed.status,
+      source: seed.source,
+      member_code: seed.member_code,
+      cohort: seed.cohort,
+    })
+    .select(PROFILE_COLUMNS)
+    .single();
+  if (insertError) throw insertError;
+
+  const references: Array<[string, string]> = [
+    ['attendance_logs', 'user_id'],
+    ['telemetry_events', 'user_id'],
+    ['meetings', 'host_id'],
+    ['qr_challenges', 'facilitator_id'],
+    ['qr_challenges', 'redeemed_by'],
+    ['member_aliases', 'member_id'],
+    ['attendance_unmatched_entries', 'member_id'],
+  ];
+  for (const [table, column] of references) {
+    const { error } = await supabase.from(table).update({ [column]: input.id }).eq(column, seed.id);
+    if (error) throw error;
+  }
+
+  const { error: deleteError } = await supabase.from('users').delete().eq('id', seed.id);
+  if (deleteError) throw deleteError;
+
+  return linked as AuthorizedProfile;
+}
+
 export async function createMeeting(input: { roomKey: string; title: string; hostId: string; scheduledStart?: string }) {
   const supabase = getSupabaseClient();
   if (!supabase) return { id: input.roomKey, room_key: input.roomKey, title: input.title, host_id: input.hostId, scheduled_start: input.scheduledStart ?? new Date().toISOString(), status: 'scheduled' };
