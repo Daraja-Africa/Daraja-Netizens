@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { handleLinkClick } from '../router';
 import { loadGuides } from './contentApi';
 import { fallbackGuides } from './fallbackGuides';
+import ResourceCards from './ResourceCards';
 import { STUDENT_CATEGORIES, type Guide } from './types';
 
 const filters = ['All', ...STUDENT_CATEGORIES];
@@ -116,6 +117,8 @@ export default function MentalHealthHub() {
           </button>
         </div>
       )}
+
+      <ResourceCards />
 
       <div className="hub-note">
         <p className="viewer-kicker">If today is an emergency</p>
