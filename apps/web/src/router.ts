@@ -18,7 +18,7 @@ export function parseStudentRoute(pathname: string): StudentRoute | null {
   return { kind: 'overview' };
 }
 
-export type FacilitatorRoute = { kind: 'flashcards' } | { kind: 'data' };
+export type FacilitatorRoute = { kind: 'flashcards' } | { kind: 'data' } | { kind: 'reach-out' };
 
 const facilitatorPrefix = '/facilitator';
 
@@ -26,6 +26,7 @@ export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null
   const clean = pathname.replace(/\/+$/, '') || '/';
   if (clean === `${facilitatorPrefix}/flashcards`) return { kind: 'flashcards' };
   if (clean === `${facilitatorPrefix}/data`) return { kind: 'data' };
+  if (clean === `${facilitatorPrefix}/reach-out`) return { kind: 'reach-out' };
   return null;
 }
 

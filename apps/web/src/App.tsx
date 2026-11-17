@@ -8,6 +8,7 @@ import { RoleSelector } from './RoleSelector';
 import ModuleOneNav from './facilitator/ModuleOneNav';
 import StudyFlashcards from './facilitator/StudyFlashcards';
 import AttendanceData from './facilitator/AttendanceData';
+import ReachOutInbox from './facilitator/ReachOutInbox';
 import { handleLinkClick, navigate, parseFacilitatorRoute, parseStudentRoute, usePathname } from './router';
 import GuideReader from './student/GuideReader';
 import MentalHealthHub from './student/MentalHealthHub';
@@ -82,7 +83,7 @@ export default function App() {
   const studentRoute = parseStudentRoute(pathname);
   const facilitatorRoute = parseFacilitatorRoute(pathname);
   const module: ModuleKey = studentRoute ? 'student' : facilitatorRoute ? 'module1' : moduleTab;
-  const activeModule1Key = facilitatorRoute?.kind === 'flashcards' || facilitatorRoute?.kind === 'data' ? facilitatorRoute.kind : view;
+  const activeModule1Key = facilitatorRoute?.kind ?? view;
 
   const accessToken = session?.access_token ?? null;
   const isDemo = !supabase;
@@ -317,6 +318,14 @@ export default function App() {
     []
   );
   const activeStudentKey = studentRoute ? (studentRoute.kind === 'guide' ? 'hub' : studentRoute.kind) : 'overview';
+  const module1Title =
+    facilitatorRoute?.kind === 'flashcards'
+      ? 'Study flashcards'
+      : facilitatorRoute?.kind === 'data'
+        ? 'Attendance data'
+        : facilitatorRoute?.kind === 'reach-out'
+          ? 'Reach-out inbox'
+          : nav.find(([key]) => key === view)?.[1] ?? 'Workspace';
 
   if (!portal) return <RoleSelector onSelect={selectPortal} />;
 
@@ -345,6 +354,7 @@ export default function App() {
 
   return (
     <main className={module === 'module1' ? 'app-shell with-fab-nav' : 'app-shell'}>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="app-sidebar">
         <div className="brand-wrap">
           <img className="brand-badge" src="/daraja-logo.png" alt="" />
@@ -437,18 +447,12 @@ export default function App() {
         </div>
       </aside>
 
-      <section className="content-panel">
+      <section className="content-panel" id="main-content" tabIndex={-1}>
         <header className="content-header">
           <div>
             <p className="viewer-kicker">{module === 'module1' ? 'Facilitator and admin console' : 'Student learning space'}</p>
             <h2>
-              {module === 'module1'
-                ? facilitatorRoute?.kind === 'flashcards'
-                  ? 'Study flashcards'
-                  : facilitatorRoute?.kind === 'data'
-                    ? 'Attendance data'
-                    : nav.find(([key]) => key === view)?.[1] ?? 'Workspace'
-                : studentNav.find((item) => item.key === activeStudentKey)?.label ?? 'Student portal'}
+              {module === 'module1' ? module1Title : studentNav.find((item) => item.key === activeStudentKey)?.label ?? 'Student portal'}
             </h2>
           </div>
           <div className="header-actions">
@@ -461,8 +465,26 @@ export default function App() {
           </div>
         </header>
 
-        {module === 'module1' ? (
-          facilitatorRoute?.kind === 'data' ? <AttendanceData accessToken={accessToken} /> : facilitatorRoute?.kind === 'flashcards' ? <StudyFlashcards /> : <>
+        {module === 'module1' && user && !canFacilitate ? (
+          <section className="overview">
+            <div className="feature-card" role="alert">
+              <p className="viewer-kicker">Restricted area</p>
+              <h3>This workspace is for facilitators and admins.</h3>
+              <p className="muted">
+                Your account is not on the facilitator roster, so attendance, QR check-in and the reach-out inbox are
+                not available here. The Student Portal stays open to you.
+              </p>
+              <button type="button" onClick={() => selectPortal('student')}>Open the Student Portal</button>
+            </div>
+          </section>
+        ) : module === 'module1' ? (
+          facilitatorRoute?.kind === 'data'
+            ? <AttendanceData accessToken={accessToken} />
+            : facilitatorRoute?.kind === 'flashcards'
+              ? <StudyFlashcards />
+              : facilitatorRoute?.kind === 'reach-out'
+                ? <ReachOutInbox accessToken={accessToken} currentUserId={user?.id} />
+                : <>
             {view === 'overview' && <Overview dashboard={dashboard} canFacilitate={canFacilitate} />}
             {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">Display this challenge on the facilitator screen. It expires after sixty seconds and can only be redeemed once.</p><input placeholder="Training session UUID" value={sessionId} onChange={(event) => setSessionId(event.target.value)} /><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrImage ? <><img src={qrImage} alt="Attendance QR code" className="qr-image" /><code>{qrToken}</code></> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
             {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Allow camera access to scan a one-time challenge, or use the manual token fallback. Most modern Chromium browsers support camera-based QR decoding; otherwise, use the manual token entry.</p><div className="scanner-frame"><video ref={videoRef} className="scanner-video" muted playsInline /><span>{cameraStatus}</span></div><button type="button" onClick={() => void startCamera()}>Start camera scanner</button><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li><li>Browsers without BarcodeDetector automatically fall back to manual token entry.</li></ul></div></section>}
@@ -507,7 +529,7 @@ export default function App() {
         <ModuleOneNav
           active={activeModule1Key}
           onSelect={(key) => {
-            if (key === 'flashcards' || key === 'data') {
+            if (key === 'flashcards' || key === 'data' || key === 'reach-out') {
               navigate(`/facilitator/${key}`);
               return;
             }

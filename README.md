@@ -50,9 +50,12 @@ This is the safe first staging target before public DNS, VPS, TLS, or managed Re
    `npm run dev`
 5. Verify `http://localhost:4000/api/health`, launch a room at `http://localhost:5173`, and confirm attendance and dashboard requests.
 
-Do not use the local development JWT fallback in production. The current
-deployment uses `meet.jit.si`; configure `JITSI_DOMAIN=meet.jit.si` consistently
-in Render and Vercel until a dedicated Jitsi provider is selected.
+Authentication fails closed. Every protected route answers `401` without a
+bearer token; there is no implicit development identity. To run the facilitator
+console offline against an in-memory API, set `ALLOW_DEMO_AUTH=1` (the API
+refuses to boot with it in production). The current deployment uses
+`meet.jit.si`; configure `JITSI_DOMAIN=meet.jit.si` consistently in Render and
+Vercel until a dedicated Jitsi provider is selected.
 
 ## Vercel and Render deployment
 
@@ -101,6 +104,25 @@ The role workspace now supports:
 Apply `supabase/migrations/20261028150000_modules_attendance_content.sql` before
 using the new database-backed module endpoints. Configure
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel for the login flow.
+
+### Reach-out operations
+
+A student's confidential note reaches a human. `POST /api/v1/student/reach-out`
+stays public and writes with the service-role key, then pages the wellness team
+through `REACH_OUT_ALERT_WEBHOOK` (the payload carries only the reference,
+urgency and topic). Facilitators and admins triage notes at
+`/facilitator/reach-out`: claim, start, close, with a response clock derived from
+the urgency the student chose (24 hours, one week, two weeks) and every open
+recorded in `reach_out_access_log`. Apply
+`supabase/migrations/20261117130000_reach_out_triage.sql` first — the inbox shows
+a clear "migration required" message (API `409`) until it is applied.
+
+### Readiness and eligibility
+
+`/api/health` is liveness only; `/api/ready` performs a real Postgres round-trip
+(cached for five seconds) and returns `503` when the database cannot answer.
+Module 1 eligibility is computed by one function, `apps/api/src/eligibility.ts`,
+used by both the dashboard and the eligibility endpoint.
 
 ## Current MVP scope
 

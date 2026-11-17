@@ -18,30 +18,15 @@ function response() {
   };
 }
 
-test('local auth mode supplies the facilitator demo identity', async () => {
-  const previous = process.env.NODE_ENV;
-  delete process.env.NODE_ENV;
-  const req = {
-    header: () => undefined,
-  } as unknown as AuthenticatedRequest;
-  const res = response();
-  let called = false;
+function request() {
+  return { header: () => undefined } as unknown as AuthenticatedRequest;
+}
 
-  await requireAuth()(req, res as never, () => {
-    called = true;
-  });
+test('an anonymous request without a token is rejected by default', async () => {
+  const previous = process.env.ALLOW_DEMO_AUTH;
+  delete process.env.ALLOW_DEMO_AUTH;
 
-  assert.equal(called, true);
-  assert.equal(req.user?.role, 'facilitator');
-  if (previous) process.env.NODE_ENV = previous;
-});
-
-test('production auth rejects requests without a bearer token', async () => {
-  const previous = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  const req = {
-    header: () => undefined,
-  } as unknown as AuthenticatedRequest;
+  const req = request();
   const res = response();
 
   await requireAuth()(req, res as never, () => {
@@ -50,6 +35,46 @@ test('production auth rejects requests without a bearer token', async () => {
 
   assert.equal(res.statusCode, 401);
   assert.deepEqual(res.body, { error: 'Authentication required' });
-  if (previous) process.env.NODE_ENV = previous;
-  else delete process.env.NODE_ENV;
+  assert.equal(req.user, undefined);
+
+  if (previous) process.env.ALLOW_DEMO_AUTH = previous;
+});
+
+test('the demo identity needs an explicit opt-in', async () => {
+  const previous = process.env.ALLOW_DEMO_AUTH;
+  process.env.ALLOW_DEMO_AUTH = '1';
+  const previousRole = process.env.DEMO_AUTH_ROLE;
+  delete process.env.DEMO_AUTH_ROLE;
+
+  const req = request();
+  let called = false;
+  await requireAuth()(req, response() as never, () => {
+    called = true;
+  });
+
+  assert.equal(called, true);
+  assert.equal(req.user?.role, 'facilitator');
+
+  if (previous) process.env.ALLOW_DEMO_AUTH = previous;
+  else delete process.env.ALLOW_DEMO_AUTH;
+  if (previousRole) process.env.DEMO_AUTH_ROLE = previousRole;
+});
+
+test('the demo identity still obeys the route role list', async () => {
+  const previous = process.env.ALLOW_DEMO_AUTH;
+  const previousRole = process.env.DEMO_AUTH_ROLE;
+  process.env.ALLOW_DEMO_AUTH = '1';
+  process.env.DEMO_AUTH_ROLE = 'student';
+
+  const res = response();
+  await requireAuth(['admin', 'facilitator'])(request(), res as never, () => {
+    throw new Error('next should not be called');
+  });
+
+  assert.equal(res.statusCode, 403);
+
+  if (previous) process.env.ALLOW_DEMO_AUTH = previous;
+  else delete process.env.ALLOW_DEMO_AUTH;
+  if (previousRole) process.env.DEMO_AUTH_ROLE = previousRole;
+  else delete process.env.DEMO_AUTH_ROLE;
 });
