@@ -36,6 +36,7 @@ with no public policies, so direct browser access is denied by default.
 - `supabase/migrations/20261026165415_init_daraja_schema.sql` defines the initial schema for users, meetings, attendance, and telemetry.
 - `supabase/migrations/20261026165422_enable_deny_by_default_rls.sql` enables deny-by-default RLS for the application tables.
 - The API reads `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from `apps/api/.env` and exposes `/api/v1/dashboard/summary` for the host dashboard.
+- `docs/data-import.md` lists every migration in the order it must run, the commands to apply them, and how the facilitator roster and lesson attendance are imported (in the app at `/facilitator/data`, or with `npm run import:data`).
 
 ## Local staging checkpoint
 

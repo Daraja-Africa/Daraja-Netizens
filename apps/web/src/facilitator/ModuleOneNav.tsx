@@ -1,12 +1,13 @@
 import './ModuleOneNav.css';
 
-export type ModuleOneNavKey = 'overview' | 'qr' | 'scanner' | 'training' | 'flashcards';
+export type ModuleOneNavKey = 'overview' | 'qr' | 'scanner' | 'training' | 'data' | 'flashcards';
 
 const items: Array<{ key: ModuleOneNavKey; label: string; glyph: string }> = [
   { key: 'overview', label: 'Overview', glyph: '◉' },
   { key: 'qr', label: 'Check-in', glyph: '▦' },
   { key: 'scanner', label: 'Scanner', glyph: '⌗' },
   { key: 'training', label: 'Training', glyph: '◎' },
+  { key: 'data', label: 'Data', glyph: '▤' },
   { key: 'flashcards', label: 'Flashcards', glyph: '❑' },
 ];
 
