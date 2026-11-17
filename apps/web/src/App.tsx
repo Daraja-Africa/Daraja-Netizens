@@ -3,6 +3,8 @@ import { createClient, type Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 
 import { apiFetch } from './api';
+import { readStoredPortal, storePortal, type Portal } from './portal';
+import { RoleSelector } from './RoleSelector';
 import ModuleOneNav from './facilitator/ModuleOneNav';
 import StudyFlashcards from './facilitator/StudyFlashcards';
 import { handleLinkClick, navigate, parseFacilitatorRoute, parseStudentRoute, usePathname } from './router';
@@ -50,7 +52,8 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
-  const [moduleTab, setModuleTab] = useState<ModuleKey>('module1');
+  const [portal, setPortal] = useState<Portal | null>(readStoredPortal);
+  const [moduleTab, setModuleTab] = useState<ModuleKey>(readStoredPortal() === 'student' ? 'student' : 'module1');
   const [module1Role, setModule1Role] = useState<Module1Role>('facilitator');
   const [studentRole, setStudentRole] = useState<StudentRole>('student');
   const [view, setView] = useState<View>('overview');
@@ -269,6 +272,20 @@ export default function App() {
     }
   }
 
+  function selectPortal(next: Portal) {
+    storePortal(next);
+    setPortal(next);
+    setModuleTab(next === 'student' ? 'student' : 'module1');
+    setView('overview');
+    const keepsRoute = next === 'student' ? Boolean(studentRoute) : Boolean(facilitatorRoute);
+    if (!keepsRoute) navigate(next === 'student' ? '/student' : '/');
+  }
+
+  function switchRole() {
+    storePortal(null);
+    setPortal(null);
+  }
+
   const nav = useMemo(
     () => [
       ['overview', 'Overview'],
@@ -317,20 +334,14 @@ export default function App() {
           <button
             type="button"
             className={module === 'module1' ? 'module-button active' : 'module-button'}
-            onClick={() => {
-              setModuleTab('module1');
-              navigate('/');
-            }}
+            onClick={() => selectPortal('facilitator')}
           >
             Module 1
           </button>
           <button
             type="button"
             className={module === 'student' ? 'module-button active' : 'module-button'}
-            onClick={() => {
-              setModuleTab('student');
-              navigate('/student');
-            }}
+            onClick={() => selectPortal('student')}
           >
             Student portal
           </button>
