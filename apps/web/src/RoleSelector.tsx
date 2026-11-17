@@ -10,9 +10,9 @@ const roleOptions: Array<{ portal: Portal; label: string; copy: string; action: 
   },
   {
     portal: 'facilitator',
-    label: 'Facilitator / Admin',
-    copy: 'Access training flashcards, QR attendance check-in, admin scanner, and Jitsi training rooms.',
-    action: 'Continue to Module 1',
+    label: 'Facilitator / Administrator',
+    copy: 'Sign in to open your own dashboard: facilitators run their sessions, administrators manage the programme.',
+    action: 'Sign in to your dashboard',
     motif: '◈',
   },
 ];

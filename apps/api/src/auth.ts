@@ -23,7 +23,13 @@ export function requireAuth(allowedRoles?: AppRole[]) {
 
     if (!token || !supabase) {
       if (process.env.NODE_ENV !== 'production') {
-        req.user = { id: '00000000-0000-4000-8000-000000000001', role: 'facilitator', name: 'Local facilitator' };
+        // Local fallback identity; it still has to satisfy the route's role list
+        // so an admin-only route is never served without an admin session.
+        const localRole: AppRole = 'facilitator';
+        if (allowedRoles && !allowedRoles.includes(localRole)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        req.user = { id: '00000000-0000-4000-8000-000000000001', role: localRole, name: 'Local facilitator' };
         return next();
       }
       return res.status(401).json({ error: 'Authentication required' });

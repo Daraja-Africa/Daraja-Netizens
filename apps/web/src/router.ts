@@ -18,15 +18,65 @@ export function parseStudentRoute(pathname: string): StudentRoute | null {
   return { kind: 'overview' };
 }
 
-export type FacilitatorRoute = { kind: 'flashcards' } | { kind: 'data' };
+/** Screens that only an administrator can open. */
+export type AdminPage =
+  | 'overview'
+  | 'members'
+  | 'facilitators'
+  | 'program'
+  | 'attendance'
+  | 'data'
+  | 'check-in'
+  | 'scanner'
+  | 'training';
 
-const facilitatorPrefix = '/facilitator';
+/** Screens a facilitator runs their sessions from. */
+export type FacilitatorPage = 'overview' | 'meetings' | 'check-in' | 'scanner' | 'training' | 'flashcards';
 
-export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null {
+export type WorkspaceArea = 'admin' | 'facilitator';
+
+export type WorkspaceRoute =
+  | { area: 'admin'; page: AdminPage }
+  | { area: 'facilitator'; page: FacilitatorPage };
+
+const adminPages: Record<string, AdminPage> = {
+  '': 'overview',
+  members: 'members',
+  facilitators: 'facilitators',
+  program: 'program',
+  attendance: 'attendance',
+  data: 'data',
+  'check-in': 'check-in',
+  scanner: 'scanner',
+  training: 'training',
+};
+
+const facilitatorPages: Record<string, FacilitatorPage> = {
+  '': 'overview',
+  meetings: 'meetings',
+  'check-in': 'check-in',
+  scanner: 'scanner',
+  training: 'training',
+  flashcards: 'flashcards',
+};
+
+export function parseWorkspaceRoute(pathname: string): WorkspaceRoute | null {
   const clean = pathname.replace(/\/+$/, '') || '/';
-  if (clean === `${facilitatorPrefix}/flashcards`) return { kind: 'flashcards' };
-  if (clean === `${facilitatorPrefix}/data`) return { kind: 'data' };
+  if (clean === '/admin') return { area: 'admin', page: 'overview' };
+  if (clean.startsWith('/admin/')) {
+    const page = adminPages[clean.slice('/admin/'.length)];
+    return { area: 'admin', page: page ?? 'overview' };
+  }
+  if (clean === '/facilitator') return { area: 'facilitator', page: 'overview' };
+  if (clean.startsWith('/facilitator/')) {
+    const page = facilitatorPages[clean.slice('/facilitator/'.length)];
+    return { area: 'facilitator', page: page ?? 'overview' };
+  }
   return null;
+}
+
+export function workspaceHome(area: WorkspaceArea) {
+  return area === 'admin' ? '/admin' : '/facilitator';
 }
 
 export function navigate(path: string) {

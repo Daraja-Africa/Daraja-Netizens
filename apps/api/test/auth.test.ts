@@ -36,6 +36,23 @@ test('local auth mode supplies the facilitator demo identity', async () => {
   if (previous) process.env.NODE_ENV = previous;
 });
 
+test('local auth mode still refuses a role the route does not allow', async () => {
+  const previous = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+  const req = {
+    header: () => undefined,
+  } as unknown as AuthenticatedRequest;
+  const res = response();
+
+  await requireAuth(['admin'])(req, res as never, () => {
+    throw new Error('next should not be called for an admin-only route');
+  });
+
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(res.body, { error: 'Insufficient permissions' });
+  if (previous) process.env.NODE_ENV = previous;
+});
+
 test('production auth rejects requests without a bearer token', async () => {
   const previous = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
