@@ -4,6 +4,14 @@ export type StaffRole = 'admin' | 'facilitator';
 
 export type AppUser = { id: string; email?: string; role: AppRole; name?: string };
 
+/** Props every staff dashboard receives from the app shell. */
+export type StaffDashboardProps = {
+  user: AppUser;
+  accessToken: string | null;
+  status: string;
+  onSignOut: () => void;
+};
+
 export function isStaffRole(role: AppRole | undefined): role is StaffRole {
   return role === 'admin' || role === 'facilitator';
 }
