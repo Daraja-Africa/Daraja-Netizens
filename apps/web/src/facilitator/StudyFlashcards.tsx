@@ -159,7 +159,7 @@ export default function StudyFlashcards() {
     <section className="flashcards" style={{ '--accent': palette.border, '--accent-ink': palette.ink } as CSSProperties}>
       <header className="flashcards-hero">
         <div>
-          <p className="viewer-kicker">Module 1 study deck</p>
+          <p className="viewer-kicker">Training study deck</p>
           <h3>Practise the room before you stand in it.</h3>
           <p className="muted">
             All Daraja training material as flashcards. Answer the scenario out loud, then flip for the facilitator
