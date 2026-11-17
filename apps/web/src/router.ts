@@ -18,6 +18,16 @@ export function parseStudentRoute(pathname: string): StudentRoute | null {
   return { kind: 'overview' };
 }
 
+export type FacilitatorRoute = { kind: 'flashcards' };
+
+const facilitatorPrefix = '/facilitator';
+
+export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === `${facilitatorPrefix}/flashcards`) return { kind: 'flashcards' };
+  return null;
+}
+
 export function navigate(path: string) {
   if (window.location.pathname === path) return;
   window.history.pushState({}, '', path);
