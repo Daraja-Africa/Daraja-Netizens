@@ -78,21 +78,28 @@ The `7-of-8` training and `4-of-6` stipend quotas require a participant
 eligibility data model and are not represented in the current initial schema;
 they should be added as a separate migration before enabling payout decisions.
 
-## Module 1 frontend and API
+## Staff dashboards and student portal
 
-The product now uses a clear module boundary:
+The product now uses a clear role boundary. A signed-in account only ever opens
+the workspace its role allows:
 
-- Module 1 is the authenticated facilitator/admin workspace.
-- The student portal is a separate post-training learning surface.
-- Training eligibility and stipend progress remain Module 1-only and are not
-  displayed in the student portal.
-- In Module 1, the role selector explicitly supports `facilitator` and `admin`.
-- Student-facing routes stay separated from the protected facilitator/admin
-  operations and their attendance, QR, and training logic.
+- `/admin` is the **Admin dashboard** (`admin` role only): overview, member
+  directory, staff access, programme schedule, session attendance, data imports,
+  QR check-in, scanner and the training room.
+- `/facilitator` is the **Facilitator dashboard** (`facilitator` role): their
+  sessions, attendance recording, QR check-in, scanner, training room and study
+  flashcards. No administrative screen or link is rendered for a facilitator.
+- `/student` is the student portal, a separate post-training learning surface
+  that needs no staff sign-in.
+- A facilitator who opens an `/admin` route is redirected to `/facilitator`; a
+  member is redirected to `/student`. The API enforces the same rules, so an
+  admin-only endpoint answers `403` for any other role.
+- Programme-wide eligibility and stipend figures remain admin-only and are not
+  displayed in the facilitator dashboard or the student portal.
 
-The role workspace now supports:
+The staff workspaces support:
 
-- Supabase Auth login for the facilitator/admin Module 1 experience.
+- Supabase Auth login; the account's role decides which dashboard opens.
 - Facilitator progress cards for physical sessions, online sessions, attendance,
   training progress, and stipend progress.
 - Short-lived one-time QR challenge generation and server-side redemption.
