@@ -22,7 +22,7 @@ export function RoleSelector({ onSelect }: { onSelect: (portal: Portal) => void 
     <main className="role-gate">
       <div className="role-gate-inner">
         <header className="role-gate-header">
-          <span className="brand-badge" aria-hidden="true">D</span>
+          <img className="brand-badge" src="/daraja-logo.png" alt="" />
           <p className="eyebrow">Daraja Netizens</p>
           <h1>Where would you like to begin?</h1>
           <p className="muted">

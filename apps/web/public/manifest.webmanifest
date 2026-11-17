@@ -8,6 +8,12 @@
   "theme_color": "#07111f",
   "icons": [
     {
+      "src": "/daraja-logo.png",
+      "sizes": "1445x1370",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",

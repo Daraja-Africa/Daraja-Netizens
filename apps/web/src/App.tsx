@@ -298,7 +298,7 @@ export default function App() {
     return (
       <main className="auth-shell">
         <form className="auth-card" onSubmit={signIn}>
-          <div className="brand-badge">D</div>
+          <img className="brand-badge" src="/daraja-logo.png" alt="" />
           <p className="eyebrow">Daraja Netizens</p>
           <h1>Module 1 access</h1>
           <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
@@ -316,7 +316,7 @@ export default function App() {
     <main className="app-shell">
       <aside className="app-sidebar">
         <div className="brand-wrap">
-          <div className="brand-badge">D</div>
+          <img className="brand-badge" src="/daraja-logo.png" alt="" />
           <div>
             <p className="eyebrow">Module workspace</p>
             <h1>Daraja Netizens</h1>

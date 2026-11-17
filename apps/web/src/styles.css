@@ -88,16 +88,10 @@ a { color: inherit; }
 .brand-badge {
   width: 48px;
   height: 48px;
-  display: grid;
-  place-items: center;
   flex: 0 0 auto;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #c2652a, #8a4518 72%, #2a2420);
-  color: white;
-  font-family: 'EB Garamond', Georgia, serif;
-  font-size: 1.6rem;
-  font-weight: 700;
-  box-shadow: 0 9px 22px rgba(194, 101, 42, .2);
+  border-radius: 50%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 8px rgba(58, 48, 42, .14));
 }
 .eyebrow, .viewer-kicker, .status-label {
   color: var(--primary);
@@ -364,7 +358,7 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
   text-align: center;
 }
 .role-gate-header { display: grid; justify-items: center; gap: 13px; }
-.role-gate-header .brand-badge { width: 58px; height: 58px; border-radius: 20px; font-size: 1.9rem; }
+.role-gate-header .brand-badge { width: 76px; height: 76px; }
 .role-gate-header h1 {
   max-width: 22ch;
   font-size: clamp(2.1rem, 5vw, 3.5rem);
