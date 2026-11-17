@@ -1,0 +1,73 @@
+/* Module 1 floating bottom navbar */
+
+.module-one-nav {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  padding: 7px;
+  overflow-x: auto;
+  border: 1px solid rgba(216, 208, 200, .9);
+  border-radius: 999px;
+  background: rgba(250, 245, 238, .94);
+  box-shadow: 0 14px 34px rgba(58, 48, 42, .16);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+  scrollbar-width: none;
+}
+
+.module-one-nav::-webkit-scrollbar { display: none; }
+
+.module-one-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--quiet);
+  font-size: .76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+
+.module-one-nav-item:hover { border-color: rgba(194, 101, 42, .22); background: #f6f0e8; color: var(--ink); }
+
+.module-one-nav-item.active {
+  border-color: rgba(194, 101, 42, .3);
+  background: #fbe8d8;
+  color: var(--primary-dark);
+}
+
+.module-one-nav-glyph { font-size: .9rem; line-height: 1; opacity: .82; }
+
+/* The floating bar carries Module 1 navigation, so the rail list is not repeated. */
+.app-shell.with-fab-nav .side-nav { display: none; }
+.app-shell.with-fab-nav .content-panel { padding-bottom: 116px; }
+
+@media (max-width: 680px) {
+  .module-one-nav {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    max-width: none;
+    gap: 2px;
+    padding: 6px;
+    transform: none;
+  }
+  .module-one-nav-item {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding: 9px 4px;
+    font-size: .64rem;
+  }
+  .module-one-nav-item > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .module-one-nav-glyph { display: none; }
+  .app-shell.with-fab-nav .content-panel { padding-bottom: 104px; }
+}

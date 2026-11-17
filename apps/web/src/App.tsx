@@ -2,14 +2,21 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 
-import { RoleSelector } from './RoleSelector';
+import { apiFetch } from './api';
 import { readStoredPortal, storePortal, type Portal } from './portal';
+import { RoleSelector } from './RoleSelector';
+import ModuleOneNav from './facilitator/ModuleOneNav';
+import StudyFlashcards from './facilitator/StudyFlashcards';
+import { handleLinkClick, navigate, parseFacilitatorRoute, parseStudentRoute, usePathname } from './router';
+import GuideReader from './student/GuideReader';
+import MentalHealthHub from './student/MentalHealthHub';
+import ReachOut from './student/ReachOut';
 
 type ModuleKey = 'module1' | 'student';
 type Module1Role = 'admin' | 'facilitator';
 type StudentRole = 'student';
 type Role = Module1Role | StudentRole | 'participant';
-type View = 'overview' | 'qr' | 'scanner' | 'training' | 'library';
+type View = 'overview' | 'qr' | 'scanner' | 'training';
 
 type AppUser = { id: string; email?: string; role: Role; name?: string };
 type Dashboard = {
@@ -26,7 +33,6 @@ type BarcodeDetectorLike = {
   detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
 const jitsiDomain = import.meta.env.VITE_JITSI_DOMAIN ?? 'meet.jit.si';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -34,14 +40,11 @@ const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supa
 const demoRole = new URLSearchParams(window.location.search).get('role');
 const localDemoRole: Role = demoRole === 'student' || demoRole === 'participant' ? demoRole : 'facilitator';
 
-async function apiFetch(path: string, accessToken: string | null, options?: RequestInit) {
-  const headers = new Headers(options?.headers);
-  headers.set('Content-Type', 'application/json');
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers });
-  if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? 'Request failed');
-  return response.json();
-}
+const studentNav: Array<{ key: 'overview' | 'hub' | 'reach-out'; label: string; path: string }> = [
+  { key: 'overview', label: 'Overview', path: '/student' },
+  { key: 'hub', label: 'Mental health hub', path: '/student/hub' },
+  { key: 'reach-out', label: 'Reach out', path: '/student/reach-out' },
+];
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -50,13 +53,11 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [portal, setPortal] = useState<Portal | null>(readStoredPortal);
-  const module: ModuleKey = portal === 'student' ? 'student' : 'module1';
+  const [moduleTab, setModuleTab] = useState<ModuleKey>(readStoredPortal() === 'student' ? 'student' : 'module1');
   const [module1Role, setModule1Role] = useState<Module1Role>('facilitator');
   const [studentRole, setStudentRole] = useState<StudentRole>('student');
   const [view, setView] = useState<View>('overview');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [content, setContent] = useState<Array<{ id: string; title: string; summary: string; url: string; category: string }>>([]);
-  const [support, setSupport] = useState<Array<{ id: string; label: string; channel: string; value: string }>>([]);
   const [status, setStatus] = useState('Ready for a secure session');
   const [roomName, setRoomName] = useState('daraja-training-room');
   const [displayName, setDisplayName] = useState('Facilitator');
@@ -73,6 +74,12 @@ export default function App() {
   const joinedAtRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  const pathname = usePathname();
+  const studentRoute = parseStudentRoute(pathname);
+  const facilitatorRoute = parseFacilitatorRoute(pathname);
+  const module: ModuleKey = studentRoute ? 'student' : facilitatorRoute ? 'module1' : moduleTab;
+  const activeModule1Key = facilitatorRoute?.kind === 'flashcards' ? 'flashcards' : view;
 
   const accessToken = session?.access_token ?? null;
   const isDemo = !supabase;
@@ -112,23 +119,13 @@ export default function App() {
   }, [accessToken, isDemo, session]);
 
   useEffect(() => {
-    if (module === 'module1') {
-      if (!user) return;
-      if (canFacilitate) {
-        void apiFetch('/api/v1/facilitator/dashboard', accessToken).then(setDashboard).catch(() => setStatus('Dashboard data unavailable'));
-      }
-      return;
-    }
-
-    void apiFetch('/api/v1/content', accessToken).then((data) => setContent(data.items ?? data)).catch(() => setStatus('Learning library unavailable'));
-    void apiFetch('/api/v1/support/contacts', accessToken).then((data) => setSupport(data.contacts ?? data)).catch(() => setStatus('Support contacts unavailable'));
+    if (module !== 'module1' || !user || !canFacilitate) return;
+    void apiFetch('/api/v1/facilitator/dashboard', accessToken).then(setDashboard).catch(() => setStatus('Dashboard data unavailable'));
   }, [accessToken, canFacilitate, module, user]);
 
   useEffect(() => {
-    if (module === 'student') {
-      setView('overview');
-    }
-  }, [module]);
+    window.scrollTo({ top: 0 });
+  }, [pathname]);
 
   useEffect(() => {
     if (!qrToken) {
@@ -278,7 +275,10 @@ export default function App() {
   function selectPortal(next: Portal) {
     storePortal(next);
     setPortal(next);
+    setModuleTab(next === 'student' ? 'student' : 'module1');
     setView('overview');
+    const keepsRoute = next === 'student' ? Boolean(studentRoute) : Boolean(facilitatorRoute);
+    if (!keepsRoute) navigate(next === 'student' ? '/student' : '/');
   }
 
   function switchRole() {
@@ -286,9 +286,16 @@ export default function App() {
     setPortal(null);
   }
 
-  const nav = useMemo(() => module === 'module1'
-    ? [['overview', 'Overview'], ['qr', 'QR check-in'], ['scanner', 'Admin scanner'], ['training', 'Training room']]
-    : [['overview', 'Overview'], ['library', 'Learning hub']], [module]);
+  const nav = useMemo(
+    () => [
+      ['overview', 'Overview'],
+      ['qr', 'QR check-in'],
+      ['scanner', 'Admin scanner'],
+      ['training', 'Training room'],
+    ] as Array<[View, string]>,
+    []
+  );
+  const activeStudentKey = studentRoute ? (studentRoute.kind === 'guide' ? 'hub' : studentRoute.kind) : 'overview';
 
   if (!portal) return <RoleSelector onSelect={selectPortal} />;
 
@@ -313,7 +320,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={module === 'module1' ? 'app-shell with-fab-nav' : 'app-shell'}>
       <aside className="app-sidebar">
         <div className="brand-wrap">
           <img className="brand-badge" src="/daraja-logo.png" alt="" />
@@ -324,8 +331,20 @@ export default function App() {
         </div>
 
         <div className="module-switcher">
-          <button type="button" className={module === 'module1' ? 'module-button active' : 'module-button'} onClick={() => selectPortal('facilitator')}>Module 1</button>
-          <button type="button" className={module === 'student' ? 'module-button active' : 'module-button'} onClick={() => selectPortal('student')}>Student portal</button>
+          <button
+            type="button"
+            className={module === 'module1' ? 'module-button active' : 'module-button'}
+            onClick={() => selectPortal('facilitator')}
+          >
+            Module 1
+          </button>
+          <button
+            type="button"
+            className={module === 'student' ? 'module-button active' : 'module-button'}
+            onClick={() => selectPortal('student')}
+          >
+            Student portal
+          </button>
         </div>
 
         {module === 'module1' ? (
@@ -352,9 +371,31 @@ export default function App() {
         )}
 
         <nav className="side-nav" aria-label="Workspace navigation">
-          {nav.map(([key, label]) => (
-            <button key={key} type="button" className={view === key ? 'side-link active' : 'side-link'} onClick={() => setView(key as View)}>{label}</button>
-          ))}
+          {module === 'module1'
+            ? nav.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={activeModule1Key === key ? 'side-link active' : 'side-link'}
+                  onClick={() => {
+                    setView(key);
+                    if (facilitatorRoute) navigate('/');
+                  }}
+                >
+                  {label}
+                </button>
+              ))
+            : studentNav.map((item) => (
+                <a
+                  key={item.key}
+                  href={item.path}
+                  className={activeStudentKey === item.key ? 'side-link active' : 'side-link'}
+                  aria-current={activeStudentKey === item.key ? 'page' : undefined}
+                  onClick={(event) => handleLinkClick(event, item.path)}
+                >
+                  {item.label}
+                </a>
+              ))}
         </nav>
 
         <div className="status-box">
@@ -367,7 +408,13 @@ export default function App() {
         <header className="content-header">
           <div>
             <p className="viewer-kicker">{module === 'module1' ? 'Facilitator and admin console' : 'Student learning space'}</p>
-            <h2>{nav.find(([key]) => key === view)?.[1] ?? 'Workspace'}</h2>
+            <h2>
+              {module === 'module1'
+                ? facilitatorRoute?.kind === 'flashcards'
+                  ? 'Study flashcards'
+                  : nav.find(([key]) => key === view)?.[1] ?? 'Workspace'
+                : studentNav.find((item) => item.key === activeStudentKey)?.label ?? 'Student portal'}
+            </h2>
           </div>
           <div className="header-actions">
             <span className={module === 'module1' ? 'module-badge indigo' : 'module-badge sage'}>
@@ -380,7 +427,7 @@ export default function App() {
         </header>
 
         {module === 'module1' ? (
-          <>
+          facilitatorRoute?.kind === 'flashcards' ? <StudyFlashcards /> : <>
             {view === 'overview' && <Overview dashboard={dashboard} canFacilitate={canFacilitate} />}
             {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">Display this challenge on the facilitator screen. It expires after sixty seconds and can only be redeemed once.</p><input placeholder="Training session UUID" value={sessionId} onChange={(event) => setSessionId(event.target.value)} /><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrImage ? <><img src={qrImage} alt="Attendance QR code" className="qr-image" /><code>{qrToken}</code></> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
             {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Allow camera access to scan a one-time challenge, or use the manual token fallback. Most modern Chromium browsers support camera-based QR decoding; otherwise, use the manual token entry.</p><div className="scanner-frame"><video ref={videoRef} className="scanner-video" muted playsInline /><span>{cameraStatus}</span></div><button type="button" onClick={() => void startCamera()}>Start camera scanner</button><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li><li>Browsers without BarcodeDetector automatically fall back to manual token entry.</li></ul></div></section>}
@@ -388,7 +435,7 @@ export default function App() {
           </>
         ) : (
           <>
-            {view === 'overview' && (
+            {studentRoute?.kind === 'overview' && (
               <section className="overview">
                 <div className="hero-card">
                   <div>
@@ -399,23 +446,41 @@ export default function App() {
                   <span className="hero-orb">✦</span>
                 </div>
                 <div className="feature-grid">
-                  <div className="feature-card">
-                    <p className="viewer-kicker">Learning resources</p>
-                    <h3>Access the latest material</h3>
-                    <p className="muted">Browse structured lessons, updates, and community resources from the Daraja learning library.</p>
-                  </div>
-                  <div className="feature-card">
-                    <p className="viewer-kicker">Follow our work</p>
-                    <h3>Stay close to the programme</h3>
-                    <p className="muted">Check updates, support points, and learning links curated for students after training.</p>
-                  </div>
+                  <a className="feature-card portal-link-card" href="/student/hub" onClick={(event) => handleLinkClick(event, '/student/hub')}>
+                    <p className="viewer-kicker">Mental health hub</p>
+                    <h3>Guides for real life</h3>
+                    <p className="muted">Youth-friendly guides on anxiety, low moods, boundaries, grief, digital wellbeing and supporting a friend — written at your pace.</p>
+                    <span className="read-guide">Open the hub →</span>
+                  </a>
+                  <a className="feature-card portal-link-card" href="/student/reach-out" onClick={(event) => handleLinkClick(event, '/student/reach-out')}>
+                    <p className="viewer-kicker">Confidential reach-out</p>
+                    <h3>Talk to a wellness supporter</h3>
+                    <p className="muted">Reach the Daraja wellness team by WhatsApp, phone call, SMS or email. You can use a nickname, or stay anonymous.</p>
+                    <span className="read-guide">Reach out →</span>
+                  </a>
                 </div>
               </section>
             )}
-            {view === 'library' && <section className="library-grid">{content.length ? content.map((item) => <a className="content-card" key={item.id} href={item.url} target="_blank" rel="noreferrer"><span className="tag">{item.category}</span><h3>{item.title}</h3><p>{item.summary}</p></a>) : <div className="empty-state">Learning content is being prepared for the student portal.</div>}<div className="support-card"><p className="viewer-kicker">Wellness support</p><h3>You do not have to navigate difficult moments alone.</h3><p className="muted">Connect with a professional support partner.</p>{support.length ? support.map((item) => <a key={item.id} href={item.channel === 'url' ? item.value : `${item.channel}:${item.value}`}>{item.label}</a>) : <span className="muted">Support contacts are being configured.</span>}</div></section>}
+            {studentRoute?.kind === 'hub' && <MentalHealthHub />}
+            {studentRoute?.kind === 'guide' && <GuideReader slug={studentRoute.slug} />}
+            {studentRoute?.kind === 'reach-out' && <ReachOut />}
           </>
         )}
       </section>
+
+      {module === 'module1' && (
+        <ModuleOneNav
+          active={activeModule1Key}
+          onSelect={(key) => {
+            if (key === 'flashcards') {
+              navigate('/facilitator/flashcards');
+              return;
+            }
+            setView(key);
+            navigate('/');
+          }}
+        />
+      )}
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { config } from './config.js';
+import { fallbackSupportContacts, type StudentSupportContact } from './studentContent.js';
 
 let client: SupabaseClient | null = null;
 
@@ -225,6 +226,54 @@ export async function getSupportContacts() {
   const { data, error } = await supabase.from('support_contacts').select('id, label, channel, value').eq('active', true).order('label');
   if (error) throw error;
   return { contacts: data ?? [], source: 'supabase' };
+}
+
+/**
+ * Wellness support cards for the Student Portal Reach-Out page. Programmes can
+ * curate them in the `support_contacts` table; the bundled helplines are used
+ * whenever the table is empty or Supabase is not configured.
+ */
+export async function getStudentSupportContacts(): Promise<{ contacts: StudentSupportContact[]; source: 'supabase' | 'fallback' }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { contacts: fallbackSupportContacts, source: 'fallback' };
+  const { data, error } = await supabase.from('support_contacts').select('id, label, channel, value').eq('active', true).order('label');
+  if (error) throw error;
+  const contacts = (data ?? []).map((row) => ({
+    id: String(row.id),
+    label: String(row.label),
+    channel: row.channel as StudentSupportContact['channel'],
+    value: String(row.value),
+  }));
+  return contacts.length ? { contacts, source: 'supabase' } : { contacts: fallbackSupportContacts, source: 'fallback' };
+}
+
+/**
+ * Records a confidential reach-out request. Writes go through the service-role
+ * client only — the table has deny-by-default RLS, so browsers can never read
+ * these rows back.
+ */
+export async function createStudentReachOutRequest(input: {
+  reference: string;
+  name?: string;
+  contactMethod: string;
+  contactDetail: string;
+  supportTopic: string;
+  urgency: string;
+  message: string;
+}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { ok: true as const, mode: 'memory' as const, reference: input.reference };
+  const { error } = await supabase.from('student_reach_out_requests').insert({
+    reference: input.reference,
+    name: input.name?.trim() ? input.name.trim() : null,
+    contact_method: input.contactMethod,
+    contact_detail: input.contactDetail,
+    support_topic: input.supportTopic,
+    urgency: input.urgency,
+    message: input.message,
+  });
+  if (error) throw error;
+  return { ok: true as const, mode: 'supabase' as const, reference: input.reference };
 }
 
 export const supabaseReady = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
