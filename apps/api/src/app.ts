@@ -6,14 +6,30 @@ import { z } from 'zod';
 
 import { config } from './config.js';
 import {
+  AdminError,
+  getAdminOverview,
+  getFacilitatorDirectory,
+  getFacilitatorOverview,
+  getMemberDirectory,
+  getProgramData,
+  getSessionAttendance,
+  setSessionAttendance,
+  updateTrainingSession,
+  updateUserRole,
+  type ManagedRole,
+  type SessionPatch,
+} from './admin.js';
+import {
   checkSupabaseReadiness,
   createMeeting,
   createQrChallenge,
   createStudentReachOutRequest,
+  createTrainingSession,
   ensureUser,
   getContentFeed,
   getDashboardSummary,
   getEligibility,
+  listTrainingSessions,
   getReachOutNote,
   getRoleDashboard,
   getStudentSupportContacts,
@@ -301,6 +317,33 @@ export function createApp(deps: AppDeps = {}) {
     timestamp: z.number().int().nonnegative(),
   });
 
+  const roleSchema = z.object({ role: z.enum(['admin', 'facilitator', 'student', 'participant']) });
+  const createSessionSchema = z.object({
+    title: z.string().trim().min(1).max(160),
+    sessionType: z.enum(['physical', 'online']),
+    scheduledAt: z.string().datetime({ offset: true }),
+    requiredForTraining: z.boolean().default(true),
+    requiredForStipend: z.boolean().default(false),
+    weekKey: z.string().trim().max(40).optional(),
+    isMakeup: z.boolean().default(false),
+  });
+  const sessionPatchSchema = z.object({
+    title: z.string().trim().min(1).max(160).optional(),
+    session_type: z.enum(['physical', 'online']).optional(),
+    scheduled_at: z.string().datetime({ offset: true }).optional(),
+    status: z.enum(['scheduled', 'completed', 'cancelled']).optional(),
+    required_for_training: z.boolean().optional(),
+    required_for_stipend: z.boolean().optional(),
+    week_key: z.string().trim().max(40).nullable().optional(),
+    is_makeup: z.boolean().optional(),
+  }).strict();
+
+  function adminFailure(req: express.Request, res: express.Response, error: unknown, label: string) {
+    if (error instanceof AdminError) return res.status(error.status).json({ error: error.message });
+    (req as AuthenticatedRequest).log?.error('admin.request_failed', { error, label });
+    return res.status(503).json({ error: `${label} is unavailable` });
+  }
+
   function reachOutFailure(req: express.Request, res: express.Response, error: unknown) {
     if (isMissingReachOutSchema(error)) {
       return res.status(409).json({
@@ -338,6 +381,67 @@ export function createApp(deps: AppDeps = {}) {
       req.log?.error('dashboard.failed', { error });
       return res.status(503).json({ error: 'Facilitator dashboard unavailable' });
     }
+  });
+
+  app.get('/api/v1/sessions', requireAuth(['admin', 'facilitator']), async (req, res) => {
+    try {
+      return res.json(await listTrainingSessions());
+    } catch (error) {
+      return adminFailure(req, res, error, 'Training sessions');
+    }
+  });
+
+  app.get('/api/v1/admin/overview', requireAuth(['admin']), async (req, res) => {
+    try { return res.json(await getAdminOverview()); } catch (error) { return adminFailure(req, res, error, 'Admin overview'); }
+  });
+  app.get('/api/v1/admin/members', requireAuth(['admin']), async (req, res) => {
+    try { return res.json(await getMemberDirectory()); } catch (error) { return adminFailure(req, res, error, 'Member directory'); }
+  });
+  app.get('/api/v1/admin/facilitators', requireAuth(['admin']), async (req, res) => {
+    try { return res.json(await getFacilitatorDirectory()); } catch (error) { return adminFailure(req, res, error, 'Facilitator directory'); }
+  });
+  app.patch('/api/v1/admin/users/:id/role', requireAuth(['admin']), async (req: AuthenticatedRequest, res) => {
+    const parsed = roleSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Choose a valid role' });
+    try { return res.json({ user: await updateUserRole(req.user!.id, req.params.id, parsed.data.role as ManagedRole) }); }
+    catch (error) { return adminFailure(req, res, error, 'Role change'); }
+  });
+  app.get('/api/v1/admin/program', requireAuth(['admin']), async (req, res) => {
+    try { return res.json(await getProgramData()); } catch (error) { return adminFailure(req, res, error, 'Programme data'); }
+  });
+  app.post('/api/v1/admin/sessions', requireAuth(['admin']), async (req, res) => {
+    const parsed = createSessionSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Check the session details', details: parsed.error.flatten().fieldErrors });
+    try {
+      const session = await createTrainingSession({
+        title: parsed.data.title, sessionType: parsed.data.sessionType, scheduledAt: parsed.data.scheduledAt,
+        requiredForTraining: parsed.data.requiredForTraining, requiredForStipend: parsed.data.requiredForStipend,
+        weekKey: parsed.data.weekKey, isMakeup: parsed.data.isMakeup,
+      });
+      return res.status(201).json({ session });
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') return res.status(409).json({ error: 'A session with that title and start time already exists' });
+      return adminFailure(req, res, error, 'Session creation');
+    }
+  });
+  app.patch('/api/v1/admin/sessions/:id', requireAuth(['admin']), async (req, res) => {
+    const parsed = sessionPatchSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Check the session details', details: parsed.error.flatten().fieldErrors });
+    try { return res.json({ session: await updateTrainingSession(req.params.id, parsed.data as SessionPatch) }); }
+    catch (error) { return adminFailure(req, res, error, 'Session update'); }
+  });
+  app.get('/api/v1/sessions/:id/attendance', requireAuth(['admin', 'facilitator']), async (req, res) => {
+    try { return res.json(await getSessionAttendance(req.params.id)); } catch (error) { return adminFailure(req, res, error, 'Session attendance'); }
+  });
+  app.put('/api/v1/sessions/:id/attendance', requireAuth(['admin', 'facilitator']), async (req, res) => {
+    const parsed = z.object({ memberId: z.string().uuid(), present: z.boolean() }).safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Choose a member and whether they attended' });
+    try {
+      return res.json({ attendance: await setSessionAttendance({ sessionId: req.params.id, memberId: parsed.data.memberId, present: parsed.data.present }) });
+    } catch (error) { return adminFailure(req, res, error, 'Attendance update'); }
+  });
+  app.get('/api/v1/facilitator/overview', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+    try { return res.json(await getFacilitatorOverview(req.user!.id)); } catch (error) { return adminFailure(req, res, error, 'Facilitator overview'); }
   });
 
   app.get('/api/v1/facilitator/eligibility', requireAuth(['admin', 'facilitator', 'student']), async (req: AuthenticatedRequest, res) => {

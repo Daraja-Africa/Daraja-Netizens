@@ -3,31 +3,17 @@ import QRCode from 'qrcode';
 
 import { apiFetch } from '../api';
 
-type Session = { id: string; title: string; scheduled_at: string; session_type: string; status: string };
-
-type Challenge = { token: string; expires_at: string };
+type Challenge = { token: string; expires_at: string; session?: { title: string } };
 
 /**
  * One-time QR check-in for a training session. Used from both dashboards: the
  * facilitator displays it while the session runs; an admin can use it too.
  */
 export default function CheckIn({ accessToken }: { accessToken: string | null }) {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [sessionId, setSessionId] = useState('');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [qrImage, setQrImage] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    void apiFetch('/api/v1/sessions', accessToken)
-      .then((data: { sessions: Session[] }) => {
-        setSessions(data.sessions);
-        const firstOpen = data.sessions.find((session) => session.status !== 'completed' && session.status !== 'cancelled');
-        setSessionId(firstOpen?.id ?? data.sessions[0]?.id ?? '');
-      })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Sessions are unavailable'));
-  }, [accessToken]);
 
   useEffect(() => {
     if (!challenge) {
@@ -48,18 +34,14 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
   }, [challenge]);
 
   async function generate() {
-    if (!sessionId) {
-      setMessage('Choose a training session first.');
-      return;
-    }
     setBusy(true);
     setMessage('');
     try {
       const data = await apiFetch('/api/v1/attendance/qr', accessToken, {
         method: 'POST',
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({}),
       });
-      setChallenge({ token: data.token, expires_at: data.expires_at });
+      setChallenge({ token: data.token, expires_at: data.expires_at, session: data.session });
       setMessage('Challenge created — it expires in sixty seconds and can only be redeemed once.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to create a check-in');
@@ -68,29 +50,16 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
     }
   }
 
-  const selected = sessions.find((session) => session.id === sessionId);
-
   return (
     <section className="feature-grid">
       <div className="feature-card">
         <p className="viewer-kicker">Physical attendance</p>
         <h3>Generate a one-time check-in</h3>
         <p className="muted">
-          Pick the session running now, then show this challenge on the facilitator screen. Each code expires after
-          sixty seconds and can only be redeemed once.
+          This challenge is issued for today's physical session. Each code expires after sixty seconds and can only be
+          redeemed once.
         </p>
-        <label>
-          Training session
-          <select value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-            <option value="">Choose a session</option>
-            {sessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.title} · {formatSession(session)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" onClick={() => void generate()} disabled={busy || !sessionId}>
+        <button type="button" onClick={() => void generate()} disabled={busy}>
           {busy ? 'Generating…' : 'Generate QR challenge'}
         </button>
         {message && <p className={message.startsWith('Challenge created') ? 'muted' : 'error-text'}>{message}</p>}
@@ -102,7 +71,7 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
             <img src={qrImage} alt="Attendance QR code" className="qr-image" />
             <code>{challenge.token}</code>
             <span className="muted">
-              {selected ? `${selected.title} · valid until ${formatSessionTime(challenge.expires_at)}` : `Valid until ${formatSessionTime(challenge.expires_at)}`}
+              {challenge.session ? `${challenge.session.title} · valid until ${formatSessionTime(challenge.expires_at)}` : `Valid until ${formatSessionTime(challenge.expires_at)}`}
             </span>
           </>
         ) : (
@@ -111,10 +80,6 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
       </div>
     </section>
   );
-}
-
-function formatSession(session: Session) {
-  return new Date(session.scheduled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
 
 function formatSessionTime(value: string) {

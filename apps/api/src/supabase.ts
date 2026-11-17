@@ -247,6 +247,45 @@ export async function getRoleDashboard(userId: string) {
   };
 }
 
+function physicalSessionTitle(day: Date) {
+  return `Physical session — ${day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`;
+}
+
+/**
+ * The physical session a check-in QR belongs to. Facilitators generate a
+ * challenge from the session room, so the session is resolved from the calendar
+ * instead of being typed in: today's physical session when one is scheduled,
+ * otherwise a session created for today.
+ */
+async function resolvePhysicalSession() {
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+  const title = physicalSessionTitle(now);
+  const supabase = getSupabaseClient();
+  if (!supabase) return { id: crypto.randomUUID(), title, scheduled_at: now.toISOString() };
+
+  const existing = await supabase
+    .from('training_sessions')
+    .select('id, title, scheduled_at')
+    .eq('session_type', 'physical')
+    .gte('scheduled_at', startOfDay.toISOString())
+    .lt('scheduled_at', endOfDay.toISOString())
+    .order('scheduled_at')
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return existing.data;
+
+  const created = await supabase
+    .from('training_sessions')
+    .insert({ title, session_type: 'physical', scheduled_at: now.toISOString() })
+    .select('id, title, scheduled_at')
+    .single();
+  if (created.error) throw created.error;
+  return created.data;
+}
+
 export async function createQrChallenge(input: { sessionId: string; facilitatorId: string }) {
   const supabase = getSupabaseClient();
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
