@@ -68,6 +68,7 @@ const protectedRoutes: Array<{ method: string; path: string; body?: unknown; fac
   { method: 'POST', path: '/api/v1/attendance', body: { meetingId: SESSION_ID, userId: STUDENT_ID, joinedAt: new Date().toISOString() }, facilitatorOnly: false },
   { method: 'POST', path: '/api/v1/telemetry', body: { eventType: 'CONFERENCE_JOINED', meetingId: SESSION_ID, userId: STUDENT_ID, timestamp: Date.now() }, facilitatorOnly: false },
   { method: 'POST', path: '/api/v1/attendance/qr/redeem', body: { token: 'a-valid-length-qr-token' }, facilitatorOnly: false },
+  { method: 'POST', path: '/api/v1/discord/linked-roles', body: { providerToken: 'discord-provider-credential' }, facilitatorOnly: true },
 ];
 
 test('every protected route rejects an anonymous caller', async () => {

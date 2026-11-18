@@ -85,6 +85,28 @@ export function parseFacilitatorRoute(pathname: string): FacilitatorRoute | null
   return null;
 }
 
+export type LegalPage = 'terms' | 'privacy';
+
+/** Public pages Discord's app review can open without signing in. */
+export function parseLegalRoute(pathname: string): LegalPage | null {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/terms') return 'terms';
+  if (clean === '/privacy') return 'privacy';
+  return null;
+}
+
+export type DiscordRoute = 'verify-user';
+
+/**
+ * Discord's Linked Roles verification URL. The page itself is public (a reviewer
+ * or a member opens it cold); the Discord sign-in happens inside it.
+ */
+export function parseDiscordRoute(pathname: string): DiscordRoute | null {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/discord/verify-user') return 'verify-user';
+  return null;
+}
+
 export function navigate(path: string) {
   if (window.location.pathname === path) return;
   window.history.pushState({}, '', path);

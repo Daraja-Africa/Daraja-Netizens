@@ -9,7 +9,11 @@ import ModuleOneNav from './facilitator/ModuleOneNav';
 import StudyFlashcards from './facilitator/StudyFlashcards';
 import AttendanceData from './facilitator/AttendanceData';
 import ReachOutInbox from './facilitator/ReachOutInbox';
-import { handleLinkClick, navigate, parseFacilitatorRoute, parseStudentRoute, usePathname } from './router';
+import AppFooter from './layout/AppFooter';
+import LegalPage from './legal/LegalPage';
+import VerifyUserPage from './discord/VerifyUserPage';
+import { handleLinkClick, navigate, parseDiscordRoute, parseFacilitatorRoute, parseLegalRoute, parseStudentRoute, usePathname } from './router';
+import DiscordInvite from './student/DiscordInvite';
 import GuideReader from './student/GuideReader';
 import MentalHealthHub from './student/MentalHealthHub';
 import ReachOut from './student/ReachOut';
@@ -41,7 +45,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 const demoRole = new URLSearchParams(window.location.search).get('role');
 const localDemoRole: Role = demoRole === 'student' || demoRole === 'participant' ? demoRole : 'facilitator';
-const notAllowlistedNotice = 'This Google account is not listed as an approved Daraja facilitator. Please sign in with your registered Daraja email or switch to the Student Portal.';
+const notAllowlistedNotice = 'This account is not listed as an approved Daraja facilitator. Please sign in with your registered Daraja email or switch to the Student Portal.';
 
 const studentNav: Array<{ key: 'overview' | 'hub' | 'reach-out'; label: string; path: string }> = [
   { key: 'overview', label: 'Overview', path: '/student' },
@@ -80,6 +84,8 @@ export default function App() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const pathname = usePathname();
+  const legalPage = parseLegalRoute(pathname);
+  const discordRoute = parseDiscordRoute(pathname);
   const studentRoute = parseStudentRoute(pathname);
   const facilitatorRoute = parseFacilitatorRoute(pathname);
   const module: ModuleKey = studentRoute ? 'student' : facilitatorRoute ? 'module1' : moduleTab;
@@ -179,6 +185,20 @@ export default function App() {
     setAccessNotice('');
     const result = await supabase.auth.signInWithOAuth({
       provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    if (result.error) setAuthError(result.error.message);
+  }
+
+  // Same flow as Google: Supabase returns to this origin with a session, and the
+  // existing /api/v1/auth/me hydration (including 403 NOT_ALLOWLISTED sign-out)
+  // decides whether the account may use the facilitator workspace.
+  async function signInWithDiscord() {
+    if (!supabase) return;
+    setAuthError('');
+    setAccessNotice('');
+    const result = await supabase.auth.signInWithOAuth({
+      provider: 'discord',
       options: { redirectTo: window.location.origin },
     });
     if (result.error) setAuthError(result.error.message);
@@ -327,6 +347,14 @@ export default function App() {
           ? 'Reach-out inbox'
           : nav.find(([key]) => key === view)?.[1] ?? 'Workspace';
 
+  // Public legal pages come before the role gate: Discord's app review opens
+  // them cold, with no portal choice and no session.
+  if (legalPage) return <LegalPage page={legalPage} />;
+
+  // Discord's Linked Roles verification URL. Public like the legal pages: the
+  // Discord sign-in and the badge write happen inside the page itself.
+  if (discordRoute) return <VerifyUserPage client={supabase} session={session} />;
+
   if (!portal) return <RoleSelector onSelect={selectPortal} />;
 
   const showModule1Auth = module === 'module1' && !user && supabase;
@@ -334,20 +362,26 @@ export default function App() {
   if (showModule1Auth) {
     return (
       <main className="auth-shell">
-        <form className="auth-card" onSubmit={signIn}>
-          <img className="brand-badge" src="/daraja-logo.png" alt="" />
-          <p className="eyebrow">Daraja Netizens</p>
-          <h1>Module 1 access</h1>
-          <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
-          {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
-          <button type="button" className="google-button" onClick={() => void signInWithGoogle()}>Sign in with Google</button>
-          <p className="auth-divider">or use your Daraja email</p>
-          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-          {authError && <p className="error-text">{authError}</p>}
-          <button type="submit">Sign in</button>
-          <button type="button" className="ghost-button" onClick={switchRole}>Switch role</button>
-        </form>
+        <div className="auth-stack">
+          <form className="auth-card" onSubmit={signIn}>
+            <img className="brand-badge" src="/daraja-logo.png" alt="" />
+            <p className="eyebrow">Daraja Netizens</p>
+            <h1>Module 1 access</h1>
+            <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
+            {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
+            <div className="oauth-buttons">
+              <button type="button" className="google-button" onClick={() => void signInWithGoogle()}>Sign in with Google</button>
+              <button type="button" className="discord-button" onClick={() => void signInWithDiscord()}>Sign in with Discord</button>
+            </div>
+            <p className="auth-divider">or use your Daraja email</p>
+            <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+            <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            {authError && <p className="error-text">{authError}</p>}
+            <button type="submit">Sign in</button>
+            <button type="button" className="ghost-button" onClick={switchRole}>Switch role</button>
+          </form>
+          <AppFooter />
+        </div>
       </main>
     );
   }
@@ -516,6 +550,7 @@ export default function App() {
                     <span className="read-guide">Reach out →</span>
                   </a>
                 </div>
+                <DiscordInvite />
               </section>
             )}
             {studentRoute?.kind === 'hub' && <MentalHealthHub />}
@@ -523,6 +558,7 @@ export default function App() {
             {studentRoute?.kind === 'reach-out' && <ReachOut />}
           </>
         )}
+        <AppFooter />
       </section>
 
       {module === 'module1' && (

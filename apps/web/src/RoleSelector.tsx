@@ -1,3 +1,4 @@
+import AppFooter from './layout/AppFooter';
 import type { Portal } from './portal';
 
 const roleOptions: Array<{ portal: Portal; label: string; copy: string; action: string; motif: string }> = [
@@ -50,6 +51,7 @@ export function RoleSelector({ onSelect }: { onSelect: (portal: Portal) => void 
         </div>
 
         <p className="role-footnote">You can switch roles at any time from the header.</p>
+        <AppFooter />
       </div>
     </main>
   );

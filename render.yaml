@@ -26,3 +26,11 @@ services:
         value: meet.jit.si
       - key: REDIS_URL
         sync: false
+      # Optional Discord integration (server-only). Leave unset to disable:
+      # alerts are skipped with a warning and /api/v1/discord/webhooks answers 503.
+      - key: DISCORD_ALERT_WEBHOOK_URL
+        sync: false
+      - key: DISCORD_PUBLIC_KEY
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
