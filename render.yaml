@@ -32,3 +32,5 @@ services:
         sync: false
       - key: DISCORD_PUBLIC_KEY
         sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false

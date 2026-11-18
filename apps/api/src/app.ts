@@ -51,7 +51,15 @@ import {
 } from './studentContent.js';
 import { recordTelemetry } from './telemetry.js';
 import { createAuthGuard, type AuthenticatedRequest, type IdentityResolver, resolveIdentityFromToken } from './auth.js';
-import { buildReachOutAlert, sendDiscordAlert, verifyDiscordRequest } from './discord.js';
+import {
+  buildReachOutAlert,
+  DISCORD_INTERACTION_APPLICATION_COMMAND,
+  DISCORD_INTERACTION_PING,
+  DISCORD_INTERACTION_RESPONSE_MESSAGE,
+  sendDiscordAlert,
+  syncDiscordRoleConnection,
+  verifyDiscordRequest,
+} from './discord.js';
 import { logger as rootLogger, type Logger } from './logger.js';
 import {
   buildNotePatch,
@@ -278,6 +286,92 @@ export function createApp(deps: AppDeps = {}) {
     log.info('discord.webhook_event', { type: payload.type, event: payload.event, delivery: payload.t });
     return res.status(204).end();
   });
+
+  // ── Discord Interactions Endpoint ────────────────────────────────────────
+  // Discord points the application's "Interactions Endpoint URL" here and probes
+  // it with a signed PING before it will save the URL. Same raw-body rule as the
+  // webhook route above: any missing header, unconfigured public key or failed
+  // Ed25519 check must answer 401, which is what Discord's security check reads.
+  app.post('/api/v1/discord/interactions', express.raw({ type: 'application/json', limit: '1mb' }), (req, res) => {
+    const log = (req as AuthenticatedRequest).log ?? baseLog;
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const signatureValid = verifyDiscordRequest({
+      publicKey: config.discordPublicKey,
+      signature: req.header('x-signature-ed25519'),
+      timestamp: req.header('x-signature-timestamp'),
+      body,
+    });
+    if (!signatureValid) {
+      log.warn('discord.interaction_rejected', {
+        reason: config.discordPublicKey ? 'invalid signature' : 'public key not configured',
+      });
+      return res.status(401).json({ error: 'Invalid request signature' });
+    }
+
+    let interaction: { type?: number };
+    try {
+      interaction = JSON.parse(body.toString('utf8')) as { type?: number };
+    } catch {
+      log.warn('discord.interaction_rejected', { reason: 'malformed payload' });
+      return res.status(400).json({ error: 'Malformed payload' });
+    }
+
+    if (interaction.type === DISCORD_INTERACTION_PING) {
+      log.info('discord.interaction_ping');
+      return res.json({ type: DISCORD_INTERACTION_PING });
+    }
+
+    log.info('discord.interaction_received', { type: interaction.type });
+    if (interaction.type === DISCORD_INTERACTION_APPLICATION_COMMAND) {
+      return res.json({
+        type: DISCORD_INTERACTION_RESPONSE_MESSAGE,
+        data: {
+          content:
+            'Daraja Netizens is active! Visit https://darajanetizens.cc.cd for mental health resources and facilitator tools.',
+        },
+      });
+    }
+    return res.json({ type: DISCORD_INTERACTION_RESPONSE_MESSAGE, data: { content: 'Interaction received.' } });
+  });
+
+  // ── Discord Linked Roles ─────────────────────────────────────────────────
+  // The verification page sends the OAuth provider credential Supabase captured
+  // during the Discord sign-in; the API checks the Daraja role first, then writes
+  // the role connection with that credential so it can only touch the caller's
+  // own Discord account. Students and unlisted accounts stop at 403.
+  app.post(
+    '/api/v1/discord/linked-roles',
+    express.json({ limit: '8kb' }),
+    requireAuth(['facilitator', 'admin']),
+    async (req: AuthenticatedRequest, res) => {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: 'Authentication required' });
+
+      const parsed = z.object({ providerToken: z.string().min(1).max(4096) }).safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ error: 'A Discord provider credential is required' });
+
+      const result = await syncDiscordRoleConnection({
+        providerToken: parsed.data.providerToken,
+        clientId: config.discordClientId,
+        platformUsername: user.name || user.email || user.id,
+        log: req.log ?? baseLog,
+      });
+
+      if (!result.ok) {
+        if (result.reason === 'not_configured') {
+          return res.status(503).json({ error: 'Discord role verification is not configured' });
+        }
+        if (result.reason === 'network') {
+          return res.status(502).json({ error: 'Discord did not answer. Try again in a moment.' });
+        }
+        return res
+          .status(403)
+          .json({ error: 'Discord rejected the role connection. Sign in with Discord again and approve role linking.' });
+      }
+
+      return res.json({ verified: true, role: user.role });
+    }
+  );
 
   app.use(express.json({ limit: '1mb' }));
   app.use((req, res, next) => {

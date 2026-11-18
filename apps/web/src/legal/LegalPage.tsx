@@ -61,6 +61,10 @@ function Terms() {
         <li>Do not attempt to access accounts, data or facilitator screens that are not yours.</li>
         <li>Do not upload malware, scrape the portal, or interfere with its availability.</li>
         <li>Do not impersonate another person when you submit a reach-out note or sign in.</li>
+        <li>
+          Treat everyone with respect in Jitsi sessions and in the Daraja Discord community: no harassment, hate speech,
+          spam or unwanted messages.
+        </li>
       </ul>
 
       <h2>Accounts and sign-in</h2>
@@ -81,6 +85,12 @@ function Terms() {
         window you choose. It is not monitored around the clock and it is not a crisis line. If you are in immediate
         danger, call <a href="tel:999">999</a> or one of the helplines listed on the reach-out page now.
       </p>
+      <p>
+        Our guides, peer facilitation and facilitator training are educational and supportive. They do not replace
+        assessment, diagnosis or treatment by a qualified medical or mental-health professional, and no facilitator
+        acts as your clinician. In an immediate crisis, contact your local emergency services or the nearest hospital
+        before anything else.
+      </p>
 
       <h2>The Daraja Discord community</h2>
       <p>
@@ -91,11 +101,12 @@ function Terms() {
         receive when you use Discord to sign in.
       </p>
 
-      <h2>Our materials</h2>
+      <h2>Intellectual property</h2>
       <p>
-        The learning guides, session plans and programme materials on the portal belong to Daraja Netizens and its
-        contributors. You may read, download and share them for personal learning and non-commercial awareness work.
-        Please do not resell them or present them as your own.
+        The learning guides, session plans and programme materials on the portal belong to Daraja Netizens, the Daraja
+        Africa Network and their contributors. You may read, download and share them for personal learning and
+        non-commercial awareness work. Please do not resell them, present them as your own, or remove the Daraja
+        attribution they carry.
       </p>
 
       <h2>Availability and changes</h2>

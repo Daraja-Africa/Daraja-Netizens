@@ -932,6 +932,58 @@ textarea:focus { outline: none; border-color: var(--primary-strong); box-shadow:
 .legal-nav a { text-decoration: none; }
 .legal-nav a:hover { color: var(--primary-dark); text-decoration: underline; text-underline-offset: 3px; }
 
+/* ── Discord linked role verification ────────────────────────────────────── */
+.verify-card { display: grid; gap: 18px; }
+.verify-lead { color: var(--muted); font-size: .95rem; line-height: 1.7; }
+.verify-lead strong { color: var(--ink); }
+.verify-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--muted); font-size: .92rem; line-height: 1.6; }
+.verify-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid #e7dfd5;
+  border-radius: 16px;
+  background: #f7f3eb;
+}
+.verify-pill {
+  flex: none;
+  margin-top: 2px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.verify-pill.is-verified { background: #dfeee3; color: #176b43; }
+.verify-pill.is-error { background: rgba(154, 44, 32, .12); color: #9a2c20; }
+.verify-pill.is-pending { background: #efe7dc; color: var(--quiet); }
+.verify-state-title { color: var(--ink); font-weight: 800; }
+.verify-state-detail { margin-top: 4px; color: var(--muted); font-size: .88rem; line-height: 1.6; }
+.verify-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+/* Deep umber keeps the action inside the warm palette while reading as a
+   Discord step rather than the portal's own primary action. */
+.verify-button {
+  border: 0;
+  border-radius: 11px;
+  padding: 13px 20px;
+  background: #3a3230;
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+.verify-button:hover { background: #2a2420; }
+.verify-button:disabled { opacity: .6; cursor: progress; }
+.verify-hint { color: var(--quiet); font-size: .8rem; }
+
+@media (max-width: 560px) {
+  .verify-state { flex-direction: column; gap: 10px; }
+  .verify-button { width: 100%; }
+}
+
 /* ── Discord sign-in and community invite ────────────────────────────────── */
 .oauth-buttons { display: grid; gap: 10px; }
 /* Deep umber rather than Discord's blue, so the second option still belongs to

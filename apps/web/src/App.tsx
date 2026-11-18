@@ -11,7 +11,8 @@ import AttendanceData from './facilitator/AttendanceData';
 import ReachOutInbox from './facilitator/ReachOutInbox';
 import AppFooter from './layout/AppFooter';
 import LegalPage from './legal/LegalPage';
-import { handleLinkClick, navigate, parseFacilitatorRoute, parseLegalRoute, parseStudentRoute, usePathname } from './router';
+import VerifyUserPage from './discord/VerifyUserPage';
+import { handleLinkClick, navigate, parseDiscordRoute, parseFacilitatorRoute, parseLegalRoute, parseStudentRoute, usePathname } from './router';
 import DiscordInvite from './student/DiscordInvite';
 import GuideReader from './student/GuideReader';
 import MentalHealthHub from './student/MentalHealthHub';
@@ -84,6 +85,7 @@ export default function App() {
 
   const pathname = usePathname();
   const legalPage = parseLegalRoute(pathname);
+  const discordRoute = parseDiscordRoute(pathname);
   const studentRoute = parseStudentRoute(pathname);
   const facilitatorRoute = parseFacilitatorRoute(pathname);
   const module: ModuleKey = studentRoute ? 'student' : facilitatorRoute ? 'module1' : moduleTab;
@@ -348,6 +350,10 @@ export default function App() {
   // Public legal pages come before the role gate: Discord's app review opens
   // them cold, with no portal choice and no session.
   if (legalPage) return <LegalPage page={legalPage} />;
+
+  // Discord's Linked Roles verification URL. Public like the legal pages: the
+  // Discord sign-in and the badge write happen inside the page itself.
+  if (discordRoute) return <VerifyUserPage client={supabase} session={session} />;
 
   if (!portal) return <RoleSelector onSelect={selectPortal} />;
 

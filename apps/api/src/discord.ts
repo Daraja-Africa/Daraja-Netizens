@@ -26,6 +26,11 @@ const ALERT_TIMEOUT_MS = 5_000;
 /** DER prefix that turns a raw 32-byte Ed25519 key into an SPKI public key. */
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
+/** Interaction types Discord posts to an application's Interactions Endpoint URL. */
+export const DISCORD_INTERACTION_PING = 1;
+export const DISCORD_INTERACTION_APPLICATION_COMMAND = 2;
+export const DISCORD_INTERACTION_RESPONSE_MESSAGE = 4;
+
 export type DiscordEmbedField = { name: string; value: string; inline?: boolean };
 
 export type DiscordEmbed = {
@@ -145,6 +150,62 @@ export function buildReachOutAlert(input: ReachOutAlertInput): DiscordAlert {
       },
     ],
   };
+}
+
+export type RoleConnectionResult =
+  | { ok: true }
+  | { ok: false; reason: 'not_configured' | 'rejected' | 'network'; status?: number };
+
+/** Discord role-connection writes are interactive, so keep the wait short. */
+const ROLE_CONNECTION_TIMEOUT_MS = 8_000;
+
+/**
+ * Writes the facilitator badge to the signed-in Discord account.
+ *
+ * Discord's Linked Roles API is called with the OAuth provider credential that
+ * Supabase captured during the Discord sign-in, never with an application
+ * secret, so the write can only ever touch the account that just proved who it
+ * is. The credential is passed straight through, never logged or stored.
+ */
+export async function syncDiscordRoleConnection(input: {
+  providerToken: string;
+  clientId: string;
+  platformUsername: string;
+  log: Logger;
+}): Promise<RoleConnectionResult> {
+  const { providerToken, clientId, platformUsername, log } = input;
+  if (!clientId) {
+    log.warn('discord.role_connection_not_configured', {
+      hint: 'Set DISCORD_CLIENT_ID to sync the facilitator role to Discord',
+    });
+    return { ok: false, reason: 'not_configured' };
+  }
+
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/users/@me/applications/${encodeURIComponent(clientId)}/role-connection`,
+      {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${providerToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          platform_name: 'Daraja Netizens',
+          platform_username: platformUsername,
+          // Discord renders registered metadata as the role badge; 1 = true.
+          metadata: { verified_facilitator: 1 },
+        }),
+        signal: AbortSignal.timeout(ROLE_CONNECTION_TIMEOUT_MS),
+      }
+    );
+    if (!response.ok) {
+      log.warn('discord.role_connection_failed', { status: response.status });
+      return { ok: false, reason: 'rejected', status: response.status };
+    }
+    log.info('discord.role_connection_synced');
+    return { ok: true };
+  } catch (error) {
+    log.warn('discord.role_connection_failed', { error });
+    return { ok: false, reason: 'network' };
+  }
 }
 
 export type DiscordSignatureInput = {
