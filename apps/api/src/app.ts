@@ -51,6 +51,7 @@ import {
 } from './studentContent.js';
 import { recordTelemetry } from './telemetry.js';
 import { createAuthGuard, type AuthenticatedRequest, type IdentityResolver, resolveIdentityFromToken } from './auth.js';
+import { buildReachOutAlert, sendDiscordAlert, verifyDiscordRequest } from './discord.js';
 import { logger as rootLogger, type Logger } from './logger.js';
 import {
   buildNotePatch,
@@ -235,6 +236,48 @@ export function createApp(deps: AppDeps = {}) {
   });
 
   app.use('/api/v1/facilitator/attendance', attendanceRouter);
+
+  // ── Discord platform webhooks ────────────────────────────────────────────
+  // Discord signs `timestamp + raw body` with Ed25519, so this route must see
+  // the untouched bytes: it buffers them with express.raw and is registered
+  // before the shared JSON parser and the write limiter, since the signature is
+  // the only gate it needs and a re-encoded body would fail verification.
+  app.post('/api/v1/discord/webhooks', express.raw({ type: 'application/json', limit: '1mb' }), (req, res) => {
+    const log = (req as AuthenticatedRequest).log ?? baseLog;
+    if (!config.discordPublicKey) {
+      log.warn('discord.webhook_not_configured', { hint: 'Set DISCORD_PUBLIC_KEY to accept Discord webhooks' });
+      return res.status(503).json({ error: 'Discord webhook is not configured' });
+    }
+
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const signatureValid = verifyDiscordRequest({
+      publicKey: config.discordPublicKey,
+      signature: req.header('x-signature-ed25519'),
+      timestamp: req.header('x-signature-timestamp'),
+      body,
+    });
+    if (!signatureValid) {
+      log.warn('discord.webhook_rejected', { reason: 'invalid signature' });
+      return res.status(401).json({ error: 'Invalid request signature' });
+    }
+
+    let payload: { type?: number; t?: string; event?: string };
+    try {
+      payload = JSON.parse(body.toString('utf8')) as typeof payload;
+    } catch {
+      log.warn('discord.webhook_rejected', { reason: 'malformed payload' });
+      return res.status(400).json({ error: 'Malformed payload' });
+    }
+
+    // Discord's endpoint-verification probe. The type is read from the signed
+    // payload, so only Discord itself can make us answer it.
+    if (payload.type === 0) return res.status(204).end();
+
+    // Application events such as APPLICATION_AUTHORIZED carry no user data we
+    // act on; they are logged so a verification review can see them arrive.
+    log.info('discord.webhook_event', { type: payload.type, event: payload.event, delivery: payload.t });
+    return res.status(204).end();
+  });
 
   app.use(express.json({ limit: '1mb' }));
   app.use((req, res, next) => {
@@ -615,6 +658,14 @@ export function createApp(deps: AppDeps = {}) {
       return res.status(503).json({ error: 'We could not record that just now. Please try again.' });
     }
 
+    const dueAt = slaDueAt({
+      created_at: createdAt,
+      urgency: parsed.data.urgency,
+      first_response_at: null,
+      closed_at: null,
+    });
+    const log = (req as AuthenticatedRequest).log ?? baseLog;
+
     // Pages the wellness team. Never blocks or fails the submission, and carries
     // only the reference, urgency and topic — the student's words stay in the DB.
     await notifyNewNote(
@@ -623,14 +674,24 @@ export function createApp(deps: AppDeps = {}) {
         urgency: parsed.data.urgency,
         supportTopic: parsed.data.topic,
         createdAt,
-        dueAt: slaDueAt({
-          created_at: createdAt,
-          urgency: parsed.data.urgency,
-          first_response_at: null,
-          closed_at: null,
-        }),
+        dueAt,
       },
-      (req as AuthenticatedRequest).log ?? baseLog
+      log
+    );
+
+    // Optional Discord channel alert for the counselling/moderation team. Not
+    // awaited: the note is stored, so a slow or missing Discord must not delay
+    // the student's confirmation. Same triage fields, no free text.
+    void sendDiscordAlert(
+      buildReachOutAlert({
+        reference,
+        supportTopic: parsed.data.topic,
+        urgency: parsed.data.urgency,
+        contactMethod: parsed.data.contactMethod,
+        createdAt,
+        dueAt,
+      }),
+      log
     );
 
     return res.status(201).json({ ok: true, reference, receivedAt: createdAt });

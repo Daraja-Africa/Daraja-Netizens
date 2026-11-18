@@ -19,6 +19,11 @@ export const config = {
   // to page the wellness team when a confidential note arrives. Unset means the
   // alert is written to the structured log only.
   reachOutAlertWebhook: process.env.REACH_OUT_ALERT_WEBHOOK ?? '',
+  // Discord integration, both optional. The channel webhook URL is a credential
+  // and stays server-side; the application public key verifies incoming webhook
+  // signatures (see src/discord.ts). Unset means the integration is off.
+  discordAlertWebhookUrl: process.env.DISCORD_ALERT_WEBHOOK_URL ?? '',
+  discordPublicKey: process.env.DISCORD_PUBLIC_KEY ?? '',
 };
 
 if (config.nodeEnv === 'production' && (!config.jwtSecret || !config.supabaseServiceRoleKey)) {
