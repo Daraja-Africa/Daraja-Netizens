@@ -53,10 +53,6 @@ export type ModuleOneEligibility = {
   stipendTotalWeeks: number;
 };
 
-function attendedKey(record: AttendanceInput) {
-  return record.session_id ?? record.meeting_id ?? null;
-}
-
 export function calculateModuleOneEligibility(input: {
   trainingSessions: TrainingSessionInput[];
   attendanceRecords: AttendanceInput[];
@@ -65,7 +61,7 @@ export function calculateModuleOneEligibility(input: {
   const present = new Set(
     (input.attendanceRecords ?? [])
       .filter((record) => (record.presence_seconds ?? 0) > 0)
-      .map(attendedKey)
+      .flatMap((record) => [record.session_id, record.meeting_id])
       .filter((key): key is string => Boolean(key))
   );
 

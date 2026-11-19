@@ -33,7 +33,7 @@ test.after(async () => {
 
 async function call(method: string, path: string, options: { token?: string; body?: unknown } = {}) {
   const headers: Record<string, string> = {};
-  if (options.token) headers.authorization = `Bearer ${options.token}`;
+  if (options.token) headers.authorization = 'Bearer ' + options.token;
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   const response = await fetch(`${baseUrl}${path}`, {
     method,

@@ -366,15 +366,22 @@ export async function getEligibility(userId: string) {
 
 export async function redeemQrChallenge(input: { token: string; studentId: string }) {
   const supabase = getSupabaseClient();
-  if (!supabase) return { ok: true, source: 'memory' };
+  if (!supabase) return { ok: true, source: 'memory', session_id: null };
   const { data: challenge, error: challengeError } = await supabase.from('qr_challenges').select('id, session_id, expires_at, redeemed_at').eq('token', input.token).maybeSingle();
   if (challengeError) throw challengeError;
   if (!challenge || challenge.redeemed_at || new Date(challenge.expires_at).getTime() < Date.now()) throw new Error('QR challenge is expired or already used');
-  const { error: redeemError } = await supabase.from('qr_challenges').update({ redeemed_at: new Date().toISOString(), redeemed_by: input.studentId }).eq('id', challenge.id).is('redeemed_at', null);
+  const { data: redeemed, error: redeemError } = await supabase
+    .from('qr_challenges')
+    .update({ redeemed_at: new Date().toISOString(), redeemed_by: input.studentId })
+    .eq('id', challenge.id)
+    .is('redeemed_at', null)
+    .select('id')
+    .maybeSingle();
   if (redeemError) throw redeemError;
+  if (!redeemed) throw new Error('QR challenge is expired or already used');
   const { error: attendanceError } = await supabase.from('attendance_logs').insert({ session_id: challenge.session_id, user_id: input.studentId, joined_at: new Date().toISOString(), presence_seconds: 1, source: 'physical_qr' });
   if (attendanceError) throw attendanceError;
-  return { ok: true, source: 'supabase' };
+  return { ok: true, source: 'supabase', session_id: challenge.session_id };
 }
 
 export async function getContentFeed() {
