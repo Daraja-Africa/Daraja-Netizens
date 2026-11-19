@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 import { apiFetch } from '../api';
 
@@ -16,9 +17,11 @@ export default function Scanner({ accessToken }: { accessToken: string | null })
   const [message, setMessage] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const html5ScannerRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => () => {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    void html5ScannerRef.current?.stop().catch(() => undefined);
   }, []);
 
   async function startCamera() {
@@ -28,8 +31,26 @@ export default function Scanner({ accessToken }: { accessToken: string | null })
     }
     const detector = (window as typeof window & { BarcodeDetector?: new () => BarcodeDetectorLike }).BarcodeDetector;
     if (!detector) {
-      setCameraStatus('QR camera decoding is not supported in this browser; use manual token entry');
-      return;
+      try {
+        const scanner = new Html5Qrcode('daraja-qr-reader');
+        html5ScannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          (token) => {
+            setScanToken(token);
+            setCameraStatus('QR captured. Submit to record attendance.');
+            void scanner.stop().catch(() => undefined);
+            html5ScannerRef.current = null;
+          },
+          () => undefined,
+        );
+        setCameraStatus('Scanning for a QR challenge…');
+        return;
+      } catch {
+        setCameraStatus('Camera permission was denied or QR scanning is unavailable; use manual token entry');
+        return;
+      }
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
@@ -61,9 +82,10 @@ export default function Scanner({ accessToken }: { accessToken: string | null })
     event.preventDefault();
     setMessage('');
     try {
-      await apiFetch('/api/v1/attendance/qr/redeem', accessToken, { method: 'POST', body: JSON.stringify({ token: scanToken }) });
+      const data = await apiFetch('/api/v1/attendance/qr/redeem', accessToken, { method: 'POST', body: JSON.stringify({ token: scanToken }) });
       setMessage('Attendance recorded successfully.');
       setScanToken('');
+      if (data.session_id) window.dispatchEvent(new CustomEvent('daraja-attendance-updated', { detail: { sessionId: data.session_id } }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'QR scan failed');
     }
@@ -80,6 +102,7 @@ export default function Scanner({ accessToken }: { accessToken: string | null })
         </p>
         <div className="scanner-frame">
           <video ref={videoRef} className="scanner-video" muted playsInline />
+          <div id="daraja-qr-reader" className="scanner-video" />
           <span>{cameraStatus}</span>
         </div>
         <button type="button" onClick={() => void startCamera()}>Start camera scanner</button>

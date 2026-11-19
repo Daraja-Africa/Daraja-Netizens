@@ -50,6 +50,15 @@ export default function SessionAttendance({ accessToken }: { accessToken: string
   }, [accessToken]);
 
   useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (detail?.sessionId) setSessionId(detail.sessionId);
+    };
+    window.addEventListener('daraja-attendance-updated', refresh);
+    return () => window.removeEventListener('daraja-attendance-updated', refresh);
+  }, []);
+
+  useEffect(() => {
     if (!sessionId) {
       setSheet(null);
       return;

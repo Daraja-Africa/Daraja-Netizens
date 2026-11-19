@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { apiFetch } from '../api';
 
 type Challenge = { token: string; expires_at: string; session?: { title: string } };
+type SessionSummary = { id: string; title: string; scheduled_at: string; status: string };
 
 /**
  * One-time QR check-in for a training session. Used from both dashboards: the
@@ -14,6 +15,17 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
   const [qrImage, setQrImage] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionId, setSessionId] = useState('');
+
+  useEffect(() => {
+    void apiFetch('/api/v1/sessions', accessToken)
+      .then((data: { sessions: SessionSummary[] }) => {
+        setSessions(data.sessions);
+        setSessionId((current) => current || data.sessions[0]?.id || '');
+      })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Sessions are unavailable'));
+  }, [accessToken]);
 
   useEffect(() => {
     if (!challenge) {
@@ -34,12 +46,16 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
   }, [challenge]);
 
   async function generate() {
+    if (!sessionId) {
+      setMessage('Choose a training session before generating a challenge.');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
       const data = await apiFetch('/api/v1/attendance/qr', accessToken, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ sessionId }),
       });
       setChallenge({ token: data.token, expires_at: data.expires_at, session: data.session });
       setMessage('Challenge created — it expires in sixty seconds and can only be redeemed once.');
@@ -55,6 +71,15 @@ export default function CheckIn({ accessToken }: { accessToken: string | null })
       <div className="feature-card">
         <p className="viewer-kicker">Physical attendance</p>
         <h3>Generate a one-time check-in</h3>
+        <label>
+          Training session
+          <select value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+            <option value="">Choose a session</option>
+            {sessions.map((session) => (
+              <option key={session.id} value={session.id}>{session.title}</option>
+            ))}
+          </select>
+        </label>
         <p className="muted">
           This challenge is issued for today's physical session. Each code expires after sixty seconds and can only be
           redeemed once.

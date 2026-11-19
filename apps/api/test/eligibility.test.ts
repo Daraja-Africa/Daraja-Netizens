@@ -100,6 +100,17 @@ test('presence of zero does not count, and either id column matches', () => {
   assert.equal(result.attendanceCount, 2);
 });
 
+test('a mismatched session_id does not hide a matching meeting_id', () => {
+  const result = calculateModuleOneEligibility({
+    trainingSessions: trainingModule(),
+    attendanceRecords: [
+      { session_id: 'wrong-session', meeting_id: 'session-1', presence_seconds: 60 },
+    ],
+  });
+
+  assert.equal(result.attendedTraining, 1);
+});
+
 test('an empty module never reports anyone eligible', () => {
   const result = calculateModuleOneEligibility({ trainingSessions: [], attendanceRecords: [] });
 
