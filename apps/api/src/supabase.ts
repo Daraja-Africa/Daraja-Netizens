@@ -87,16 +87,29 @@ export async function resolveOrSyncAuthorizedUser(input: {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
 
-  const linked = await readProfileById(input.id);
-  if (linked) return linked;
-
-  const email = input.email?.trim().toLowerCase();
+  const email = input.email?.trim();
   if (!email) return null;
+  const normalizedEmail = email.toLowerCase();
+
+  const linked = await readProfileById(input.id);
+  if (linked) {
+    const { data: reconciledId, error: rpcError } = await supabase.rpc('reconcile_seeded_profile', {
+      p_auth_id: input.id,
+      p_email: normalizedEmail,
+      p_full_name: input.fullName ?? null,
+    });
+    if (!rpcError) {
+      if (!reconciledId) return null;
+      return await readProfileById(input.id);
+    }
+    if (rpcError.code !== 'PGRST202') throw rpcError;
+    return linked;
+  }
 
   const { data: seeded, error: seededError } = await supabase
     .from('users')
     .select(SEEDED_COLUMNS)
-    .ilike('email', email.replace(/([\\%_])/g, '\\$1'))
+    .filter('email', 'ilike', normalizedEmail.replace(/([\\%_])/g, '\\$1'))
     .maybeSingle();
   if (seededError) throw seededError;
   if (!seeded) return null;

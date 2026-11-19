@@ -22,7 +22,7 @@ export class ApiError extends Error {
 export async function apiFetch(path: string, accessToken?: string | null, options?: RequestInit) {
   const headers = new Headers(options?.headers);
   headers.set('Content-Type', 'application/json');
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  if (accessToken) headers.set('Authorization', 'Bearer ' + accessToken);
   const response = await fetch(`${apiBaseUrl}${path}`, { ...options, headers });
   if (!response.ok) {
     const requestId = response.headers.get('x-request-id');

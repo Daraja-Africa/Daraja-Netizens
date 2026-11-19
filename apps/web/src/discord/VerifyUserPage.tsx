@@ -4,6 +4,7 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { ApiError, apiFetch } from '../api';
 import AppFooter from '../layout/AppFooter';
 import { handleLinkClick } from '../router';
+import { detectOAuthWebView } from '../authEnvironment';
 
 /** Exactly the scopes the role-connection write needs, and nothing more. */
 const discordScopes = 'identify email role_connections.write';
@@ -58,6 +59,11 @@ export default function VerifyUserPage({
   async function verifyWithDiscord() {
     if (!client) return;
     setVerification({ state: 'signed-out' });
+    const webView = detectOAuthWebView(navigator.userAgent);
+    if (webView.embedded) {
+      setVerification({ state: 'failed', message: webView.instruction });
+      return;
+    }
     setIsStarting(true);
     const result = await client.auth.signInWithOAuth({
       provider: 'discord',
