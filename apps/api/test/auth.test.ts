@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { requireAuth, type AuthenticatedRequest } from '../src/auth.js';
+import { createAuthGuard, requireAuth, type AuthenticatedRequest } from '../src/auth.js';
 
 function response() {
   return {
@@ -78,3 +78,26 @@ test('the demo identity still obeys the route role list', async () => {
   if (previousRole) process.env.DEMO_AUTH_ROLE = previousRole;
   else delete process.env.DEMO_AUTH_ROLE;
 });
+
+test('profile resolution failures show the exact unavailable state', async () => {
+  const guarded = createAuthGuard(async () => ({
+    status: 'unavailable',
+    detail: 'Profile database timed out',
+  }));
+  const res = response();
+
+  await guarded()(requestWithBearer(), res as never, () => {
+    throw new Error('next should not be called');
+  });
+
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(res.body, { error: 'Profile resolution unavailable' });
+});
+
+function requestWithBearer() {
+  return {
+    header(name: string) {
+      return name.toLowerCase() === 'authorization' ? 'Bearer ' + 'test-token' : undefined;
+    },
+  } as unknown as AuthenticatedRequest;
+}

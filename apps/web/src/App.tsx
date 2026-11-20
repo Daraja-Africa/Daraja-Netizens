@@ -18,6 +18,7 @@ import DiscordInvite from './student/DiscordInvite';
 import GuideReader from './student/GuideReader';
 import MentalHealthHub from './student/MentalHealthHub';
 import ReachOut from './student/ReachOut';
+import { detectOAuthWebView } from './authEnvironment';
 
 type ModuleKey = 'module1' | 'student';
 type Module1Role = 'admin' | 'facilitator';
@@ -133,6 +134,15 @@ export default function App() {
       if (error instanceof ApiError && error.status === 403 && error.payload?.error === 'NOT_ALLOWLISTED') {
         setAccessNotice(notAllowlistedNotice);
         void supabase?.auth.signOut();
+        return;
+      }
+      if (error instanceof ApiError) {
+        const detail = typeof error.payload?.message === 'string'
+          ? error.payload.message
+          : typeof error.payload?.error === 'string'
+            ? error.payload.error
+            : error.message;
+        setAuthError(`Login failed: ${detail}${error.requestId ? ` (reference ${error.requestId.slice(0, 8)})` : ''}`);
       }
     });
   }, [accessToken, isDemo, session]);
@@ -186,6 +196,11 @@ export default function App() {
     if (!supabase) return;
     setAuthError('');
     setAccessNotice('');
+    const webView = detectOAuthWebView(navigator.userAgent);
+    if (webView.embedded) {
+      setAuthError(webView.instruction);
+      return;
+    }
     const result = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -200,6 +215,11 @@ export default function App() {
     if (!supabase) return;
     setAuthError('');
     setAccessNotice('');
+    const webView = detectOAuthWebView(navigator.userAgent);
+    if (webView.embedded) {
+      setAuthError(webView.instruction);
+      return;
+    }
     const result = await supabase.auth.signInWithOAuth({
       provider: 'discord',
       options: { redirectTo: window.location.origin },
@@ -391,6 +411,11 @@ export default function App() {
             <h1>Module 1 access</h1>
             <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
             {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
+            {detectOAuthWebView(navigator.userAgent).embedded && (
+              <p className="notice-banner" role="alert">
+                {(detectOAuthWebView(navigator.userAgent) as { instruction: string }).instruction}
+              </p>
+            )}
             <div className="oauth-buttons">
               <button type="button" className="google-button" onClick={() => void signInWithGoogle()}>Sign in with Google</button>
               <button type="button" className="discord-button" onClick={() => void signInWithDiscord()}>Sign in with Discord</button>
