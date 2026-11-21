@@ -60,7 +60,14 @@ insert into public.users (id, email, full_name, role, national_id, phone, cohort
 select id,
        lower(email),
        full_name,
-       'facilitator',
+       case lower(email)
+         when 'miguellewis575@gmail.com' then 'admin'
+         when 'issackbasma@gmail.com' then 'admin'
+         when 'iteyokhaisia@gmail.com' then 'admin'
+         when 'fellydestiny@gmail.com' then 'admin'
+         when 'christellehope.ella@gmail.com' then 'admin'
+         else 'facilitator'
+       end,
        national_id,
        phone,
        cohort,
@@ -70,8 +77,20 @@ select id,
 from roster
 on conflict (email) do update set
   full_name = excluded.full_name,
-  -- Every roster member is a facilitator; an admin keeps that role.
-  role = case when public.users.role = 'admin' then 'admin' else excluded.role end,
+  -- Named staff are explicitly admins (and therefore also have facilitator
+  -- access). Existing other admin accounts keep that role; regular rows follow
+  -- the roster facilitator default.
+  role = case
+    when lower(excluded.email) in (
+      'miguellewis575@gmail.com',
+      'issackbasma@gmail.com',
+      'iteyokhaisia@gmail.com',
+      'fellydestiny@gmail.com',
+      'christellehope.ella@gmail.com'
+    ) then 'admin'
+    when public.users.role = 'admin' then 'admin'
+    else excluded.role
+  end,
   national_id = excluded.national_id,
   phone = excluded.phone,
   cohort = excluded.cohort,

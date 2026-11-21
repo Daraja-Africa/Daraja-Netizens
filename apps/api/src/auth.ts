@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { logger, type Logger } from './logger.js';
 import { getSupabaseClient, resolveOrSyncAuthorizedUser } from './supabase.js';
 
-export type AppRole = 'admin' | 'facilitator' | 'student' | 'participant';
+export type AppRole = 'admin' | 'facilitator' | 'student' | 'participant' | 'host';
 
 export type AuthenticatedUser = {
   id: string;

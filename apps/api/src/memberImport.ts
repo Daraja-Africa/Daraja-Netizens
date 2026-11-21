@@ -138,6 +138,18 @@ function memberCodeForEmail(email: string): string {
   return local.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+const NAMED_ADMIN_EMAILS = new Set([
+  'miguellewis575@gmail.com',
+  'issackbasma@gmail.com',
+  'iteyokhaisia@gmail.com',
+  'fellydestiny@gmail.com',
+  'christellehope.ella@gmail.com',
+]);
+
+export function roleForRosterEmail(email: string): 'admin' | 'facilitator' {
+  return NAMED_ADMIN_EMAILS.has(email.trim().toLowerCase()) ? 'admin' : 'facilitator';
+}
+
 function decodeEntities(value: string): string {
   return value
     .replace(/&nbsp;/g, ' ')
@@ -384,8 +396,6 @@ export async function applyMemberImport(members: MemberRecord[], skipped: Skippe
   const created: string[] = [];
   const updated: string[] = [];
   for (const member of members) {
-    // A re-import refreshes roster fields only. It must never write `role`: an
-    // existing admin stays an admin, and an existing facilitator stays one.
     const payload = {
       email: member.email,
       full_name: member.name,
@@ -398,14 +408,22 @@ export async function applyMemberImport(members: MemberRecord[], skipped: Skippe
     };
     const existingId = existingIds.get(member.email);
     if (existingId) {
-      const { error: updateError } = await supabase.from('users').update(payload).eq('id', existingId);
+      // Named staff receive an explicit admin role, while ordinary roster
+      // imports leave existing role assignments intact.
+      const role = roleForRosterEmail(member.email);
+      const updatePayload = role === 'admin'
+        ? { ...payload, role }
+        : payload;
+      const { error: updateError } = await supabase.from('users').update(updatePayload).eq('id', existingId);
       if (updateError) throw updateError;
       updated.push(member.name);
     } else {
-      // Every roster member is a facilitator; admins are promoted separately.
+      // Every roster member is a facilitator by default; named admins are
+      // explicit and still have facilitator access because admin routes allow
+      // both roles.
       const { error: insertError } = await supabase
         .from('users')
-        .insert({ id: memberIdForEmail(member.email), ...payload, role: 'facilitator' });
+        .insert({ id: memberIdForEmail(member.email), ...payload, role: roleForRosterEmail(member.email) });
       if (insertError) throw insertError;
       created.push(member.name);
     }
