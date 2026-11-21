@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveEntries, type ParsedLesson, type RosterMember } from '../src/memberImport.js';
+import { resolveEntries, roleForRosterEmail, type ParsedLesson, type RosterMember } from '../src/memberImport.js';
 
 const roster: RosterMember[] = [
   { id: 'miguel', email: 'miguellewis575@gmail.com', full_name: 'Miguel Karomo' },
@@ -50,4 +50,16 @@ test('a document email still identifies a member when the name does not match', 
 
   assert.equal(resolved.resolved[0].member?.id, 'miguel');
   assert.equal(resolved.resolved[0].status, 'matched');
+});
+
+test('named staff imports are assigned admin while remaining roster imports are facilitators', () => {
+  const named = [
+    'miguellewis575@gmail.com',
+    'issackbasma@gmail.com',
+    'iteyokhaisia@gmail.com',
+    'fellydestiny@gmail.com',
+    'christellehope.ella@gmail.com',
+  ];
+  for (const email of named) assert.equal(roleForRosterEmail(email), 'admin');
+  assert.equal(roleForRosterEmail('armstrongouma28@gmail.com'), 'facilitator');
 });
