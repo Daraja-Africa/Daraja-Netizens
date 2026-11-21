@@ -108,7 +108,7 @@ test('a student is denied every facilitator-only route', async () => {
 });
 
 test('a student keeps access to the student-facing routes', async () => {
-  for (const route of protectedRoutes.filter((entry) => !entry.facilitatorOnly)) {
+  for (const route of protectedRoutes.filter((entry) => !entry.facilitatorOnly && !entry.adminOnly)) {
     const result = await call(route.method, route.path, { token: 'student-token', body: route.body });
     assert.notEqual(result.status, 403, `${route.method} ${route.path} should stay open to a student`);
     assert.ok(result.status < 500, `${route.method} ${route.path} returned ${result.status}`);
