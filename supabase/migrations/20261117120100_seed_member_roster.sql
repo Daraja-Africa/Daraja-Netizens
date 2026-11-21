@@ -60,7 +60,7 @@ insert into public.users (id, email, full_name, role, national_id, phone, cohort
 select id,
        lower(email),
        full_name,
-       'student',
+       'facilitator',
        national_id,
        phone,
        cohort,
@@ -70,6 +70,8 @@ select id,
 from roster
 on conflict (email) do update set
   full_name = excluded.full_name,
+  -- Every roster member is a facilitator; an admin keeps that role.
+  role = case when public.users.role = 'admin' then 'admin' else excluded.role end,
   national_id = excluded.national_id,
   phone = excluded.phone,
   cohort = excluded.cohort,

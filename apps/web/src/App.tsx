@@ -79,6 +79,7 @@ export default function App() {
   const [cameraStatus, setCameraStatus] = useState('Camera is off');
   const [isBusy, setIsBusy] = useState(false);
   const [meeting, setMeeting] = useState<{ roomName: string; meetingId: string; token: string; jitsiDomain: string } | null>(null);
+  const staffLandingApplied = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const jitsiApiRef = useRef<JitsiApi | null>(null);
   const joinedAtRef = useRef<number | null>(null);
@@ -124,6 +125,15 @@ export default function App() {
       setUser(data.user);
       if (data.user.role === 'admin' || data.user.role === 'facilitator') {
         setModule1Role(data.user.role);
+        // A staff account lands in the facilitator workspace once per page load,
+        // even when a student portal choice is still stored. After that the
+        // header switcher can still open the Student Portal.
+        if (!staffLandingApplied.current) {
+          staffLandingApplied.current = true;
+          storePortal('facilitator');
+          setPortal('facilitator');
+          setModuleTab('module1');
+        }
       }
     }).catch((error: unknown) => {
       if (isDemo) {

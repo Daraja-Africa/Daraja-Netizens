@@ -32,7 +32,7 @@ export async function persistTelemetryRecord(payload: Record<string, unknown>) {
  */
 export async function ensureUser(input: { id: string; email: string; fullName: string }) {
   const supabase = getSupabaseClient();
-  if (!supabase) return { id: input.id, email: input.email, full_name: input.fullName, role: 'student' };
+  if (!supabase) return { id: input.id, email: input.email, full_name: input.fullName, role: 'facilitator' };
 
   const existing = await readProfileById(input.id);
   if (existing) return existing;
@@ -241,7 +241,15 @@ export async function getRoleDashboard(userId: string) {
   const error = meetings.error ?? attendance.error ?? sessions.error;
   if (error) throw error;
   const sessionRows = sessions.data ?? [];
-  const attended = (attendance.data ?? []).filter((item) => item.presence_seconds > 0).length;
+  // The rate belongs to the signed-in member: sessions they attended over the
+  // sessions in the programme, never a ratio of their own attendance rows.
+  const attendedSessionIds = new Set(
+    (attendance.data ?? [])
+      .filter((item) => Number(item.presence_seconds) > 0)
+      .flatMap((item) => [item.session_id, item.meeting_id])
+      .filter((id): id is string => Boolean(id))
+  );
+  const attendedSessions = sessionRows.filter((session) => attendedSessionIds.has(session.id)).length;
   const eligibility = calculateModuleOneEligibility({
     trainingSessions: sessionRows,
     attendanceRecords: (attendance.data ?? []).map((item) => ({ meeting_id: item.meeting_id, session_id: item.session_id, presence_seconds: item.presence_seconds })),
@@ -250,7 +258,7 @@ export async function getRoleDashboard(userId: string) {
     stats: {
       physicalSessions: sessionRows.filter((item) => item.session_type === 'physical').length,
       onlineSessions: sessionRows.filter((item) => item.session_type === 'online').length,
-      attendanceRate: attendance.data?.length ? Math.round((attended / attendance.data.length) * 100) : 0,
+      attendanceRate: sessionRows.length ? Math.round((attendedSessions / sessionRows.length) * 100) : 0,
       trainingProgress: eligibility.trainingProgress,
       stipendProgress: eligibility.stipendProgress,
     },

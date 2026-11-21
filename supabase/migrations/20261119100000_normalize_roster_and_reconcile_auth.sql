@@ -63,7 +63,7 @@ begin
     else
       update public.users u set email = v_email
        where u.id = p_auth_id;
-    end;
+    end if;
     return p_auth_id;
   end if;
 
