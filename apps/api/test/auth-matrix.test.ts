@@ -7,11 +7,15 @@ import type { IdentityResolver } from '../src/auth.js';
 
 const STUDENT_ID = '11111111-1111-4111-8111-111111111111';
 const FACILITATOR_ID = '22222222-2222-4222-8222-222222222222';
+const ADMIN_ID = '44444444-4444-4444-8444-444444444444';
+const HOST_ID = '55555555-5555-4555-8555-555555555555';
 const SESSION_ID = '33333333-3333-4333-8333-333333333333';
 
 const resolveIdentity: IdentityResolver = async (token) => {
   if (token === 'student-token') return { status: 'ok', user: { id: STUDENT_ID, role: 'student', name: 'Student' } };
   if (token === 'facilitator-token') return { status: 'ok', user: { id: FACILITATOR_ID, role: 'facilitator', name: 'Facilitator' } };
+  if (token === 'admin-token') return { status: 'ok', user: { id: ADMIN_ID, role: 'admin', name: 'Named admin' } };
+  if (token === 'host-token') return { status: 'ok', user: { id: HOST_ID, role: 'host', name: 'Sheila Ngumi' } };
   if (token === 'unlisted-token') return { status: 'not_allowlisted' };
   return { status: 'invalid' };
 };
@@ -55,7 +59,7 @@ const roomPayload = {
 };
 
 /** Every route that is not deliberately public, with a body that would otherwise pass validation. */
-const protectedRoutes: Array<{ method: string; path: string; body?: unknown; facilitatorOnly: boolean }> = [
+const protectedRoutes: Array<{ method: string; path: string; body?: unknown; facilitatorOnly: boolean; adminOnly?: boolean }> = [
   { method: 'GET', path: '/api/v1/auth/me', facilitatorOnly: false },
   { method: 'GET', path: '/api/v1/facilitator/dashboard', facilitatorOnly: true },
   { method: 'GET', path: '/api/v1/facilitator/reach-out', facilitatorOnly: true },
@@ -69,6 +73,10 @@ const protectedRoutes: Array<{ method: string; path: string; body?: unknown; fac
   { method: 'POST', path: '/api/v1/telemetry', body: { eventType: 'CONFERENCE_JOINED', meetingId: SESSION_ID, userId: STUDENT_ID, timestamp: Date.now() }, facilitatorOnly: false },
   { method: 'POST', path: '/api/v1/attendance/qr/redeem', body: { token: 'a-valid-length-qr-token' }, facilitatorOnly: false },
   { method: 'POST', path: '/api/v1/discord/linked-roles', body: { providerToken: 'discord-provider-credential' }, facilitatorOnly: true },
+  { method: 'GET', path: '/api/v1/admin/overview', facilitatorOnly: false, adminOnly: true },
+  { method: 'GET', path: '/api/v1/admin/members', facilitatorOnly: false, adminOnly: true },
+  { method: 'GET', path: '/api/v1/admin/facilitators', facilitatorOnly: false, adminOnly: true },
+  { method: 'GET', path: '/api/v1/admin/program', facilitatorOnly: false, adminOnly: true },
 ];
 
 test('every protected route rejects an anonymous caller', async () => {
@@ -100,7 +108,7 @@ test('a student is denied every facilitator-only route', async () => {
 });
 
 test('a student keeps access to the student-facing routes', async () => {
-  for (const route of protectedRoutes.filter((entry) => !entry.facilitatorOnly)) {
+  for (const route of protectedRoutes.filter((entry) => !entry.facilitatorOnly && !entry.adminOnly)) {
     const result = await call(route.method, route.path, { token: 'student-token', body: route.body });
     assert.notEqual(result.status, 403, `${route.method} ${route.path} should stay open to a student`);
     assert.ok(result.status < 500, `${route.method} ${route.path} returned ${result.status}`);
@@ -116,6 +124,31 @@ test('a facilitator reaches the facilitator console routes', async () => {
       result.status !== 401 && result.status !== 403,
       `${route.method} ${route.path} rejected a facilitator with ${result.status}`
     );
+  }
+});
+
+test('named admin accounts reach facilitator and admin-only routes', async () => {
+  for (const route of protectedRoutes.filter((entry) => entry.facilitatorOnly || entry.adminOnly)) {
+    const result = await call(route.method, route.path, { token: 'admin-token', body: route.body });
+    assert.notEqual(result.status, 401, `${route.method} ${route.path} rejected a named admin`);
+    assert.notEqual(result.status, 403, `${route.method} ${route.path} rejected a named admin`);
+  }
+});
+
+test('facilitator-only and host-only accounts cannot reach admin-only routes', async () => {
+  for (const route of protectedRoutes.filter((entry) => entry.adminOnly)) {
+    for (const token of ['facilitator-token', 'host-token']) {
+      const result = await call(route.method, route.path, { token, body: route.body });
+      assert.equal(result.status, 403, `${token} must not reach ${route.method} ${route.path}`);
+      assert.equal(result.body?.error, 'Insufficient permissions');
+    }
+  }
+});
+
+test('a host-only account does not receive facilitator routes', async () => {
+  for (const route of protectedRoutes.filter((entry) => entry.facilitatorOnly)) {
+    const result = await call(route.method, route.path, { token: 'host-token', body: route.body });
+    assert.equal(result.status, 403, `${route.method} ${route.path} must not be reachable by a host`);
   }
 });
 
