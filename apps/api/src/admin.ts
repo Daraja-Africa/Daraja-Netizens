@@ -436,12 +436,20 @@ export async function setSessionAttendance(input: { sessionId: string; memberId:
 
 export async function getFacilitatorOverview(userId: string) {
   const supabase = client();
-  const [sessions, attendance, meetings, challenges] = await Promise.all([
+  const [sessions, attendance, ownAttendance, meetings, challenges] = await Promise.all([
     loadSessions(),
     loadAttendance(),
+    // The facilitator's own records. `loadAttendance()` is programme-wide and
+    // used only for the per-session headcounts below.
+    supabase
+      .from('attendance_logs')
+      .select('id, session_id, user_id, source, joined_at')
+      .eq('user_id', userId)
+      .gt('presence_seconds', 0),
     supabase.from('meetings').select('id, room_key, title, scheduled_start, status').eq('host_id', userId).order('scheduled_start', { ascending: false }),
     supabase.from('qr_challenges').select('id, session_id, expires_at, redeemed_at, created_at').eq('facilitator_id', userId).order('created_at', { ascending: false }),
   ]);
+  if (ownAttendance.error) throw ownAttendance.error;
   if (meetings.error) throw meetings.error;
   if (challenges.error) throw challenges.error;
 
@@ -457,7 +465,7 @@ export async function getFacilitatorOverview(userId: string) {
       upcomingSessions: sessions.filter(
         (session) => new Date(session.scheduled_at).getTime() >= now && session.status !== 'completed' && session.status !== 'cancelled'
       ).length,
-      attendanceRecords: attendance.length,
+      attendanceRecords: (ownAttendance.data ?? []).length,
       hostedMeetings: (meetings.data ?? []).length,
       checkInsIssued: challengeRows.length,
       checkInsRedeemed: challengeRows.filter((row) => row.redeemed_at).length,

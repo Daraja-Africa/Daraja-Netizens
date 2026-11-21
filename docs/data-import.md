@@ -67,6 +67,17 @@ you and skips versions the project already has.
     confidential note, RLS enabled with no browser access). The facilitator
     Reach-out inbox at `/facilitator/reach-out` returns `409` with a
     `migrationRequired` flag until this is applied.
+16. `20261119100000_normalize_roster_and_reconcile_auth.sql` — normalizes stored
+    emails and repairs Auth profile links for accounts that signed in before the
+    reconciliation trigger existed.
+17. `20261121120000_promote_roster_roles.sql` — makes `facilitator` the default
+    `public.users.role` and promotes existing `student` rows. Existing `admin`
+    rows are left untouched.
+18. `20261121120100_repair_lesson_attendance_attribution.sql` — re-points
+    imported attendance to the member named by `source_label` when a row was
+    written against the wrong profile (for example, an export that repeated the
+    meeting host's email in every row). Rows whose label matches no member are
+    left untouched.
 
 Every statement is additive and idempotent: sessions match on
 `(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on

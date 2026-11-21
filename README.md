@@ -80,8 +80,9 @@ they should be added as a separate migration before enabling payout decisions.
 
 ## Staff dashboards and student portal
 
-The product now uses a clear role boundary. A signed-in account only ever opens
-the workspace its role allows:
+The product now uses a clear role boundary. Every member of the facilitator
+roster has the `facilitator` role, and a small number of accounts additionally
+hold `admin`. A signed-in account only ever opens the workspace its role allows:
 
 - `/admin` is the **Admin dashboard** (`admin` role only): overview, member
   directory, staff access, programme schedule, session attendance, data imports,

@@ -330,15 +330,25 @@ export function resolveEntries(
     const key = normalizeKey(entry.displayName);
     const byDocumentEmail = entry.email ? byEmail.get(entry.email) : undefined;
     const byOfficialName = byName.get(normalizeKey(entry.officialName ?? ''));
-    // Stored aliases resolve to a member email; the built-in map lists roster names.
-    const aliasTarget = roster.aliases.get(key) ?? defaultAliases[key];
+    // The built-in map ships with the source documents, so it outranks a stored
+    // alias that an earlier bad import may have overwritten.
+    const builtInAlias = defaultAliases[key];
+    const aliasTarget = builtInAlias ?? roster.aliases.get(key);
     const byAlias = aliasTarget
       ? byEmail.get(aliasTarget.toLowerCase()) ?? byName.get(normalizeKey(aliasTarget))
       : undefined;
-    const member = byDocumentEmail ?? byOfficialName ?? byAlias ?? byName.get(key) ?? null;
+    const byDisplayName = byName.get(key);
+    const byNameMatch = byOfficialName ?? byDisplayName ?? byAlias ?? null;
+    const trustedNameMatch = byOfficialName ?? byDisplayName ?? (builtInAlias ? byAlias : null);
+    // Attendance exports sometimes repeat the meeting host's email in every
+    // row. When the document email names a different person than a trusted
+    // name, the name is the attendee's identity and must win.
+    const member = byDocumentEmail && trustedNameMatch && byDocumentEmail.id !== trustedNameMatch.id
+      ? trustedNameMatch
+      : byDocumentEmail ?? byNameMatch;
 
     if (member) {
-      return { ...entry, status: byDocumentEmail || byOfficialName || byName.get(key) ? 'matched' : 'alias', member };
+      return { ...entry, status: byDocumentEmail || byOfficialName || byDisplayName ? 'matched' : 'alias', member };
     }
     if (excludedMemberKeys.includes(key)) return { ...entry, status: 'excluded', member: null };
     return { ...entry, status: 'unmatched', member: null };
@@ -374,10 +384,11 @@ export async function applyMemberImport(members: MemberRecord[], skipped: Skippe
   const created: string[] = [];
   const updated: string[] = [];
   for (const member of members) {
+    // A re-import refreshes roster fields only. It must never write `role`: an
+    // existing admin stays an admin, and an existing facilitator stays one.
     const payload = {
       email: member.email,
       full_name: member.name,
-      role: 'student' as const,
       national_id: member.nationalId || null,
       phone: member.phone || null,
       cohort: member.cohort ?? null,
@@ -391,7 +402,10 @@ export async function applyMemberImport(members: MemberRecord[], skipped: Skippe
       if (updateError) throw updateError;
       updated.push(member.name);
     } else {
-      const { error: insertError } = await supabase.from('users').insert({ id: memberIdForEmail(member.email), ...payload });
+      // Every roster member is a facilitator; admins are promoted separately.
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({ id: memberIdForEmail(member.email), ...payload, role: 'facilitator' });
       if (insertError) throw insertError;
       created.push(member.name);
     }
