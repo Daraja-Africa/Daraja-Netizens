@@ -29,7 +29,10 @@ import {
   getContentFeed,
   getDashboardSummary,
   getEligibility,
+  incrementAttendance,
+  listActiveRooms,
   listTrainingSessions,
+  listTelemetryEvents,
   getReachOutNote,
   getRoleDashboard,
   getStudentSupportContacts,
@@ -50,7 +53,7 @@ import {
   studentReachOutUrgencies,
 } from './studentContent.js';
 import { recordTelemetry } from './telemetry.js';
-import { createAuthGuard, type AuthenticatedRequest, type IdentityResolver, resolveIdentityFromToken } from './auth.js';
+import { createAuthGuard, isDemoAuthEnabled, type AuthenticatedRequest, type IdentityResolver, resolveIdentityFromToken } from './auth.js';
 import {
   buildReachOutAlert,
   DISCORD_INTERACTION_APPLICATION_COMMAND,
@@ -398,10 +401,12 @@ export function createApp(deps: AppDeps = {}) {
 
   const roomSchema = z.object({
     roomName: z.string().min(3).max(80),
-    userId: z.string().uuid(),
-    userName: z.string().min(1).max(120),
+    // Identity comes from the verified bearer token. These legacy fields are
+    // optional only to support explicit local demo identities without claims.
+    userId: z.string().uuid().optional(),
+    userName: z.string().min(1).max(120).optional(),
     email: z.string().email().optional(),
-    meetingId: z.string().min(1).max(120).optional(),
+    sessionId: z.string().uuid().optional(),
     title: z.string().min(1).max(160).optional(),
   });
 
@@ -411,6 +416,14 @@ export function createApp(deps: AppDeps = {}) {
     joinedAt: z.string().datetime(),
     leftAt: z.string().datetime().optional(),
     presenceSeconds: z.number().int().nonnegative().optional(),
+    sessionId: z.string().uuid().optional(),
+  });
+
+  const attendanceHeartbeatSchema = z.object({
+    meetingId: z.string().uuid(),
+    sessionId: z.string().uuid().optional(),
+    deltaSeconds: z.number().int().min(1).max(300),
+    timestamp: z.string().datetime().optional(),
   });
 
   const reachOutSchema = z
@@ -448,10 +461,24 @@ export function createApp(deps: AppDeps = {}) {
     });
 
   const telemetrySchema = z.object({
-    eventType: z.enum(['CONFERENCE_JOINED', 'AUDIO_MUTED', 'AUDIO_UNMUTED', 'SCREEN_SHARE_STARTED', 'SCREEN_SHARE_STOPPED', 'CONFERENCE_LEFT']),
+    eventType: z.enum([
+      'CONFERENCE_JOINED',
+      'CONFERENCE_LEFT',
+      'PARTICIPANT_JOINED',
+      'PARTICIPANT_LEFT',
+      'ROLE_CHANGED',
+      'CONFERENCE_FAILED',
+      'HEARTBEAT',
+    ]),
     meetingId: z.string().min(1),
-    userId: z.string().min(1),
+    userId: z.string().min(1).optional(),
     timestamp: z.number().int().nonnegative(),
+    payload: z.record(z.unknown()).optional(),
+  });
+
+  const telemetryQuerySchema = z.object({
+    meetingId: z.string().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
   });
 
   const roleSchema = z.object({ role: z.enum(['admin', 'facilitator', 'student', 'participant']) });
@@ -791,14 +818,22 @@ export function createApp(deps: AppDeps = {}) {
     return res.status(201).json({ ok: true, reference, receivedAt: createdAt });
   });
 
-  app.post('/api/v1/rooms/token', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+  app.post('/api/v1/rooms/token', requireAuth(), async (req: AuthenticatedRequest, res) => {
     const parsed = roomSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid room payload', details: parsed.error.flatten() });
     }
 
-    const { roomName, userName, email, title } = parsed.data;
-    const userId = req.user!.id;
+    const { roomName, sessionId, title } = parsed.data;
+    const user = req.user;
+    // Body identity fields are a demo-auth compatibility path only. A verified
+    // token must never be able to choose another person's Jitsi identity.
+    const demoFallback = isDemoAuthEnabled();
+    const userId = user?.id ?? (demoFallback ? parsed.data.userId : undefined);
+    const email = user?.email ?? (demoFallback ? parsed.data.email : undefined) ?? (userId ? `${userId}@daraja.local` : undefined);
+    const name = user?.name ?? (demoFallback ? parsed.data.userName : undefined) ?? userId;
+    if (!userId || !name || !email || !user) return res.status(401).json({ error: 'Authentication required' });
+    const isModerator = user.role === 'admin' || user.role === 'facilitator';
     const nowSeconds = Math.floor(Date.now() / 1000);
     let meeting: { id: string };
 
@@ -806,8 +841,8 @@ export function createApp(deps: AppDeps = {}) {
       // Create-if-absent only: this path may never change the caller's role.
       await ensureUser({
         id: userId,
-        email: req.user!.email ?? email ?? `${userId}@daraja.local`,
-        fullName: req.user!.name ?? userName,
+        email,
+        fullName: name,
       });
       meeting = await createMeeting({
         roomKey: roomName,
@@ -830,10 +865,11 @@ export function createApp(deps: AppDeps = {}) {
         context: {
           user: {
             id: userId,
-            name: userName,
-            email: email ?? `${userId}@daraja.local`,
+            name,
+            email,
             avatar: `${config.publicBaseUrl}/assets/default-avatar.png`,
-            affiliation: 'participant',
+            affiliation: isModerator ? 'owner' : 'member',
+            moderator: isModerator,
           },
           features: {
             recording: 'false',
@@ -850,9 +886,20 @@ export function createApp(deps: AppDeps = {}) {
     return res.json({
       roomName,
       meetingId: meeting.id,
+      sessionId: sessionId ?? null,
       jitsiDomain: config.jitsiDomain,
       token,
+      user: { id: userId, name, email, role: user.role, isModerator },
     });
+  });
+
+  app.get('/api/v1/rooms/active', requireAuth(), async (req: AuthenticatedRequest, res) => {
+    try {
+      return res.json(await listActiveRooms());
+    } catch (error) {
+      req.log?.error('rooms.active_failed', { error });
+      return res.status(503).json({ error: 'Active rooms are unavailable' });
+    }
   });
 
   app.post('/api/v1/attendance', requireAuth(), async (req: AuthenticatedRequest, res) => {
@@ -866,6 +913,24 @@ export function createApp(deps: AppDeps = {}) {
       return res.status(201).json({ attendance });
     } catch (error) {
       req.log?.error('attendance.write_failed', { error });
+      return res.status(503).json({ error: 'Attendance persistence is unavailable' });
+    }
+  });
+
+  app.post('/api/v1/attendance/heartbeat', requireAuth(), async (req: AuthenticatedRequest, res) => {
+    const parsed = attendanceHeartbeatSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid attendance heartbeat payload', details: parsed.error.flatten() });
+    }
+    try {
+      const attendance = await incrementAttendance({
+        ...parsed.data,
+        userId: req.user!.id,
+        timestamp: parsed.data.timestamp ?? new Date().toISOString(),
+      });
+      return res.status(201).json({ attendance });
+    } catch (error) {
+      req.log?.error('attendance.heartbeat_failed', { error });
       return res.status(503).json({ error: 'Attendance persistence is unavailable' });
     }
   });
@@ -884,7 +949,7 @@ export function createApp(deps: AppDeps = {}) {
         meeting_id: parsed.data.meetingId,
         user_id: req.user!.id,
         created_at: new Date(parsed.data.timestamp).toISOString(),
-        payload: parsed.data,
+        payload: parsed.data.payload ?? {},
       });
     } catch (error) {
       req.log?.error('telemetry.write_failed', { error });
@@ -894,8 +959,16 @@ export function createApp(deps: AppDeps = {}) {
     return res.status(202).json({ ok: true, message: 'Telemetry received', event, supabaseConfigured });
   });
 
-  app.get('/api/v1/telemetry', requireAuth(['admin', 'facilitator']), (_req, res) => {
-    res.json({ count: 0, events: [] });
+  app.get('/api/v1/telemetry', requireAuth(['admin', 'facilitator']), async (req: AuthenticatedRequest, res) => {
+    const parsed = telemetryQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid telemetry query', details: parsed.error.flatten() });
+    try {
+      const result = await listTelemetryEvents(parsed.data);
+      return res.json({ count: result.events.length, events: result.events });
+    } catch (error) {
+      req.log?.error('telemetry.query_failed', { error });
+      return res.status(503).json({ error: 'Telemetry is unavailable' });
+    }
   });
 
   // Roster-wide meetings and attendance: facilitator/admin scope, not public.

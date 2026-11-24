@@ -293,6 +293,62 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
 .training-layout { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; }
 .jitsi-panel { min-height: 560px; overflow: hidden; border: 1px solid #d8d0c8; border-radius: 20px; background: #2a2420; }
 .empty-state { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 220px; padding: 28px; color: var(--quiet); text-align: center; }
+.training-room-stack, .jitsi-conference, .live-training-section { display: grid; gap: 18px; }
+.room-ledger { align-content: start; }
+.jitsi-conference { min-width: 0; }
+.jitsi-telemetry-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px 16px;
+  padding: 12px 16px;
+  border: 1px solid #dfd4c5;
+  border-radius: 16px;
+  background: #fffdf9;
+  color: var(--quiet);
+  font-size: .76rem;
+  font-weight: 700;
+}
+.jitsi-telemetry-bar > div { display: grid; gap: 2px; margin-right: auto; color: var(--ink); }
+.jitsi-label { color: var(--primary-strong); font-size: .62rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.jitsi-connection { padding: 5px 9px; border-radius: 999px; background: #eee7dc; color: var(--quiet); font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; }
+.jitsi-connection.connected { background: #dfeee3; color: var(--success); }
+.jitsi-connection.connecting { background: #fbe8d8; color: var(--primary-dark); }
+.jitsi-presence { color: var(--ink); font-variant-numeric: tabular-nums; }
+.jitsi-leave, .jitsi-prejoin > button, .jitsi-recovery button, .live-sign-in-card button, .live-room-form button {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 13px;
+  background: var(--primary-strong);
+  color: #fff;
+  font-size: .76rem;
+  font-weight: 800;
+}
+.jitsi-leave { background: #8c3c3c; }
+.jitsi-prejoin, .jitsi-recovery {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #dfd4c5;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff, #fbf5ee);
+}
+.jitsi-prejoin h3 { margin-top: 4px; }
+.jitsi-toggle-row { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.jitsi-toggle-row label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.jitsi-toggle-row input { width: auto; accent-color: var(--primary-strong); }
+.jitsi-warning, .jitsi-note { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: .78rem; line-height: 1.5; }
+.jitsi-warning { border: 1px solid rgba(140, 60, 60, .25); background: #fdf1ee; color: #7a221a; }
+.jitsi-note { border-left: 3px solid var(--primary); background: #f6f0e8; color: var(--muted); }
+.jitsi-recovery { border-color: rgba(140, 60, 60, .28); }
+.jitsi-recovery span { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.live-training-section { margin-top: 4px; padding: 22px; border: 1px solid #dfd4c5; border-radius: 20px; background: #fffdf9; box-shadow: var(--shadow); }
+.live-training-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; }
+.live-training-heading h3 { margin-top: 5px; }
+.live-sign-in-card { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 18px; background: #f6f0e8; }
+.live-room-form { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr) auto; align-items: end; gap: 12px; }
+.live-room-form label { display: grid; gap: 7px; color: var(--muted); font-size: .76rem; font-weight: 700; }
+.live-room-or { align-self: center; color: var(--quiet); font-size: .72rem; font-weight: 800; text-transform: uppercase; }
 .library-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .content-card { display: grid; gap: 10px; padding: 20px; text-decoration: none; transition: transform .2s ease, border-color .2s ease; }
 .content-card:hover { transform: translateY(-2px); border-color: rgba(194, 101, 42, .45); }
@@ -351,6 +407,9 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
   .hero-card h3 { font-size: 2.55rem; }
   .hero-orb { display: none; }
   .feature-grid, .training-layout, .library-grid { grid-template-columns: 1fr; }
+  .live-room-form { grid-template-columns: 1fr; }
+  .live-room-or { justify-self: center; }
+  .live-sign-in-card { grid-template-columns: 1fr; }
   .metric-grid { gap: 9px; }
   .metric-card { padding: 14px; }
   .metric-card strong { font-size: 2rem; }

@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+// Test runs deliberately use the in-memory persistence fallback. Skipping the
+// local development .env here keeps a developer's live Supabase credentials
+// from turning deterministic API tests into network calls.
+if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? 'development',

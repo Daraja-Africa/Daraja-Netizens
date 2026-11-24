@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { calculateModuleOneEligibility } from './eligibility.js';
 import type { ReachOutNote } from './reachOut.js';
 import { fallbackSupportContacts, type StudentSupportContact } from './studentContent.js';
+import { eventStore } from './telemetry.js';
 
 let client: SupabaseClient | null = null;
 
@@ -197,9 +198,61 @@ async function reconcileSeededProfile(
   return linked as AuthorizedProfile;
 }
 
+type InMemoryMeeting = {
+  id: string;
+  room_key: string;
+  title: string;
+  host_id: string;
+  scheduled_start: string;
+  status: string;
+};
+
+type InMemoryAttendance = {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  session_id?: string;
+  joined_at: string;
+  left_at?: string;
+  presence_seconds: number;
+  source: 'online_jitsi';
+};
+
+const inMemoryMeetings: InMemoryMeeting[] = [];
+const inMemoryAttendance = new Map<string, InMemoryAttendance>();
+
+function attendanceKey(meetingId: string, userId: string) {
+  return `${meetingId}:${userId}`;
+}
+
+function earliestTimestamp(first: string, second: string) {
+  return new Date(first).getTime() <= new Date(second).getTime() ? first : second;
+}
+
+function latestTimestamp(...timestamps: Array<string | undefined>) {
+  const valid = timestamps.filter((value): value is string => Boolean(value));
+  return valid.reduce<string | undefined>((latest, value) => {
+    if (!latest || new Date(value).getTime() > new Date(latest).getTime()) return value;
+    return latest;
+  }, undefined);
+}
+
 export async function createMeeting(input: { roomKey: string; title: string; hostId: string; scheduledStart?: string }) {
   const supabase = getSupabaseClient();
-  if (!supabase) return { id: input.roomKey, room_key: input.roomKey, title: input.title, host_id: input.hostId, scheduled_start: input.scheduledStart ?? new Date().toISOString(), status: 'scheduled' };
+  if (!supabase) {
+    const existing = inMemoryMeetings.find((meeting) => meeting.room_key === input.roomKey);
+    if (existing) return existing;
+    const meeting: InMemoryMeeting = {
+      id: input.roomKey,
+      room_key: input.roomKey,
+      title: input.title,
+      host_id: input.hostId,
+      scheduled_start: input.scheduledStart ?? new Date().toISOString(),
+      status: 'scheduled',
+    };
+    inMemoryMeetings.push(meeting);
+    return meeting;
+  }
   const { data, error } = await supabase.from('meetings').upsert({
     room_key: input.roomKey, title: input.title, host_id: input.hostId, scheduled_start: input.scheduledStart ?? new Date().toISOString(), status: 'scheduled',
   }, { onConflict: 'room_key' }).select().single();
@@ -207,19 +260,156 @@ export async function createMeeting(input: { roomKey: string; title: string; hos
   return data;
 }
 
-export async function upsertAttendance(input: { meetingId: string; userId: string; joinedAt: string; leftAt?: string; presenceSeconds?: number }) {
+export async function listActiveRooms() {
   const supabase = getSupabaseClient();
-  if (!supabase) return { ...input, id: `${input.meetingId}:${input.userId}` };
+  if (!supabase) {
+    return {
+      meetings: [...inMemoryMeetings]
+        .filter((meeting) => meeting.status === 'scheduled' || meeting.status === 'active')
+        .sort((left, right) => right.scheduled_start.localeCompare(left.scheduled_start))
+        .slice(0, 20),
+      source: 'memory' as const,
+    };
+  }
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('id, room_key, title, scheduled_start, status, host_id')
+    .in('status', ['scheduled', 'active'])
+    .order('scheduled_start', { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return { meetings: data ?? [], source: 'supabase' as const };
+}
+
+export async function upsertAttendance(input: {
+  meetingId: string;
+  userId: string;
+  joinedAt: string;
+  leftAt?: string;
+  presenceSeconds?: number;
+  sessionId?: string;
+}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    const key = attendanceKey(input.meetingId, input.userId);
+    const existing = inMemoryAttendance.get(key);
+    const attendance: InMemoryAttendance = {
+      id: key,
+      meeting_id: input.meetingId,
+      user_id: input.userId,
+      joined_at: existing ? earliestTimestamp(existing.joined_at, input.joinedAt) : input.joinedAt,
+      left_at: latestTimestamp(existing?.left_at, input.leftAt),
+      presence_seconds: existing ? Math.max(existing.presence_seconds, input.presenceSeconds ?? 0) : input.presenceSeconds ?? 0,
+      session_id: input.sessionId ?? existing?.session_id,
+      source: 'online_jitsi',
+    };
+    inMemoryAttendance.set(key, attendance);
+    return attendance;
+  }
+  const { data: existing, error: lookupError } = await supabase
+    .from('attendance_logs')
+    .select('id, joined_at, left_at, presence_seconds, session_id')
+    .eq('meeting_id', input.meetingId)
+    .eq('user_id', input.userId)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
   const { data, error } = await supabase.from('attendance_logs').upsert({
-    meeting_id: input.meetingId, user_id: input.userId, joined_at: input.joinedAt, left_at: input.leftAt, presence_seconds: input.presenceSeconds ?? 0, source: 'online_jitsi',
+    meeting_id: input.meetingId,
+    user_id: input.userId,
+    joined_at: existing ? earliestTimestamp(existing.joined_at, input.joinedAt) : input.joinedAt,
+    left_at: latestTimestamp(existing?.left_at, input.leftAt),
+    presence_seconds: existing ? Math.max(existing.presence_seconds, input.presenceSeconds ?? 0) : input.presenceSeconds ?? 0,
+    session_id: input.sessionId ?? existing?.session_id ?? null,
+    source: 'online_jitsi',
   }, { onConflict: 'meeting_id,user_id' }).select().single();
   if (error) throw error;
   return data;
 }
 
+export async function incrementAttendance(input: {
+  meetingId: string;
+  userId: string;
+  deltaSeconds: number;
+  timestamp: string;
+  sessionId?: string;
+}) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    const key = attendanceKey(input.meetingId, input.userId);
+    const existing = inMemoryAttendance.get(key);
+    const attendance: InMemoryAttendance = {
+      id: key,
+      meeting_id: input.meetingId,
+      user_id: input.userId,
+      joined_at: existing?.joined_at ?? input.timestamp,
+      left_at: latestTimestamp(existing?.left_at, input.timestamp),
+      presence_seconds: (existing?.presence_seconds ?? 0) + input.deltaSeconds,
+      session_id: input.sessionId ?? existing?.session_id,
+      source: 'online_jitsi',
+    };
+    inMemoryAttendance.set(key, attendance);
+    return attendance;
+  }
+  const { data: existing, error: lookupError } = await supabase
+    .from('attendance_logs')
+    .select('id, joined_at, left_at, presence_seconds, session_id')
+    .eq('meeting_id', input.meetingId)
+    .eq('user_id', input.userId)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  const { data, error } = await supabase.from('attendance_logs').upsert({
+    meeting_id: input.meetingId,
+    user_id: input.userId,
+    joined_at: existing?.joined_at ?? input.timestamp,
+    left_at: latestTimestamp(existing?.left_at, input.timestamp),
+    presence_seconds: (existing?.presence_seconds ?? 0) + input.deltaSeconds,
+    session_id: input.sessionId ?? existing?.session_id ?? null,
+    source: 'online_jitsi',
+  }, { onConflict: 'meeting_id,user_id' }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listTelemetryEvents(input: { meetingId?: string; limit?: number } = {}) {
+  const limit = Math.min(input.limit ?? 100, 200);
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    const events = eventStore
+      .filter((event) => !input.meetingId || event.meetingId === input.meetingId)
+      .slice()
+      .sort((left, right) => right.timestamp - left.timestamp)
+      .slice(0, limit);
+    return { events, source: 'memory' as const };
+  }
+  let query = supabase
+    .from('telemetry_events')
+    .select('id, meeting_id, user_id, event_type, created_at, payload')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (input.meetingId) query = query.eq('meeting_id', input.meetingId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return { events: data ?? [], source: 'supabase' as const };
+}
+
 export async function getDashboardSummary() {
   const supabase = getSupabaseClient();
-  if (!supabase) return { meetings: [], attendance: [], telemetry: [], source: 'memory' };
+  if (!supabase) {
+    const attendance = [...inMemoryAttendance.values()];
+    const totalPresenceSeconds = attendance.reduce((total, item) => total + item.presence_seconds, 0);
+    return {
+      meetings: inMemoryMeetings,
+      attendance,
+      telemetry: eventStore,
+      summary: {
+        totalMeetings: inMemoryMeetings.length,
+        activeMeetings: inMemoryMeetings.filter((meeting) => meeting.status === 'active').length,
+        uniqueAttendees: new Set(attendance.map((item) => item.user_id)).size,
+        totalPresenceMinutes: Math.round(totalPresenceSeconds / 60),
+      },
+      source: 'memory' as const,
+    };
+  }
   const [meetings, attendance, telemetry] = await Promise.all([
     supabase.from('meetings').select('id, room_key, title, scheduled_start, status, host_id').order('scheduled_start', { ascending: false }).limit(20),
     supabase.from('attendance_logs').select('id, meeting_id, user_id, joined_at, left_at, presence_seconds').order('joined_at', { ascending: false }).limit(100),
@@ -227,7 +417,21 @@ export async function getDashboardSummary() {
   ]);
   const error = meetings.error ?? attendance.error ?? telemetry.error;
   if (error) throw error;
-  return { meetings: meetings.data ?? [], attendance: attendance.data ?? [], telemetry: telemetry.data ?? [], source: 'supabase' };
+  const attendanceRows = attendance.data ?? [];
+  const meetingRows = meetings.data ?? [];
+  const totalPresenceSeconds = attendanceRows.reduce((total, item) => total + Number(item.presence_seconds ?? 0), 0);
+  return {
+    meetings: meetingRows,
+    attendance: attendanceRows,
+    telemetry: telemetry.data ?? [],
+    summary: {
+      totalMeetings: meetingRows.length,
+      activeMeetings: meetingRows.filter((meeting) => meeting.status === 'active').length,
+      uniqueAttendees: new Set(attendanceRows.map((item) => item.user_id)).size,
+      totalPresenceMinutes: Math.round(totalPresenceSeconds / 60),
+    },
+    source: 'supabase',
+  };
 }
 
 export async function getRoleDashboard(userId: string) {

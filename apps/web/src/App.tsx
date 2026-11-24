@@ -18,6 +18,8 @@ import DiscordInvite from './student/DiscordInvite';
 import GuideReader from './student/GuideReader';
 import MentalHealthHub from './student/MentalHealthHub';
 import ReachOut from './student/ReachOut';
+import StudentPortal from './student/StudentPortal';
+import TrainingRoom from './staff/TrainingRoom';
 import { detectOAuthWebView } from './authEnvironment';
 
 type ModuleKey = 'module1' | 'student';
@@ -32,16 +34,10 @@ type Dashboard = {
   sessions: Array<{ id: string; title: string; session_type: string; scheduled_at: string; status: string }>;
 };
 
-type JitsiApi = {
-  dispose: () => void;
-  addListener: (eventName: string, callback: (data?: unknown) => void) => void;
-};
-
 type BarcodeDetectorLike = {
   detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
 };
 
-const jitsiDomain = import.meta.env.VITE_JITSI_DOMAIN ?? 'meet.jit.si';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
@@ -69,20 +65,13 @@ export default function App() {
   const [view, setView] = useState<View>('overview');
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [status, setStatus] = useState('Ready for a secure session');
-  const [roomName, setRoomName] = useState('daraja-training-room');
-  const [displayName, setDisplayName] = useState('Facilitator');
-  const [roomEmail, setRoomEmail] = useState('facilitator@daraja.local');
   const [sessionId, setSessionId] = useState('');
   const [qrToken, setQrToken] = useState('');
   const [qrImage, setQrImage] = useState('');
   const [scanToken, setScanToken] = useState('');
   const [cameraStatus, setCameraStatus] = useState('Camera is off');
   const [isBusy, setIsBusy] = useState(false);
-  const [meeting, setMeeting] = useState<{ roomName: string; meetingId: string; token: string; jitsiDomain: string } | null>(null);
   const staffLandingApplied = useRef(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const jitsiApiRef = useRef<JitsiApi | null>(null);
-  const joinedAtRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const html5ScannerRef = useRef<Html5Qrcode | null>(null);
@@ -189,7 +178,6 @@ export default function App() {
   }, [qrToken]);
 
   useEffect(() => () => {
-    jitsiApiRef.current?.dispose();
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     void html5ScannerRef.current?.stop().catch(() => undefined);
   }, []);
@@ -235,55 +223,6 @@ export default function App() {
       options: { redirectTo: window.location.origin },
     });
     if (result.error) setAuthError(result.error.message);
-  }
-
-  async function startJitsi(room: string, token: string, meetingId: string, attendeeId: string) {
-    if (!containerRef.current) return;
-    const existing = document.getElementById('jitsi-external-api');
-    if (!existing) {
-      const script = document.createElement('script');
-      script.id = 'jitsi-external-api';
-      script.src = `https://${jitsiDomain}/external_api.js`;
-      script.async = true;
-      document.body.appendChild(script);
-      await new Promise<void>((resolve, reject) => {
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Unable to load Jitsi'));
-      });
-    }
-    const JitsiMeetExternalAPI = (window as typeof window & { JitsiMeetExternalAPI?: new (domain: string, options: Record<string, unknown>) => JitsiApi }).JitsiMeetExternalAPI;
-    if (!JitsiMeetExternalAPI) throw new Error('Jitsi external API unavailable');
-    jitsiApiRef.current?.dispose();
-    const api = new JitsiMeetExternalAPI(jitsiDomain, {
-      roomName: room, parentNode: containerRef.current, width: '100%', height: '100%', jwt: token,
-      configOverwrite: { startWithAudioMuted: true, prejoinPageEnabled: false, enableWelcomePage: false },
-      interfaceConfigOverwrite: { TOOLBAR_BUTTONS: ['microphone', 'camera', 'chat', 'raisehand', 'tileview', 'hangup'], SHOW_JITSI_WATERMARK: false },
-    });
-    api.addListener('videoConferenceJoined', () => {
-      joinedAtRef.current = Date.now();
-      setStatus(`Connected to ${room}`);
-      void apiFetch('/api/v1/telemetry', accessToken, { method: 'POST', body: JSON.stringify({ eventType: 'CONFERENCE_JOINED', meetingId, userId: attendeeId, timestamp: Date.now() }) });
-    });
-    api.addListener('readyToClose', () => {
-      setStatus('Room closed');
-      if (joinedAtRef.current) void apiFetch('/api/v1/attendance', accessToken, { method: 'POST', body: JSON.stringify({ meetingId, userId: attendeeId, joinedAt: new Date(joinedAtRef.current).toISOString(), leftAt: new Date().toISOString(), presenceSeconds: Math.round((Date.now() - joinedAtRef.current) / 1000) }) });
-    });
-    jitsiApiRef.current = api;
-  }
-
-  async function launchRoom(event: FormEvent) {
-    event.preventDefault();
-    setIsBusy(true);
-    try {
-      const data = await apiFetch('/api/v1/rooms/token', accessToken, { method: 'POST', body: JSON.stringify({ roomName, userId: user?.id ?? crypto.randomUUID(), userName: displayName, email: roomEmail, title: `${roomName} training` }) });
-      setMeeting(data);
-      setStatus(`Launching ${data.roomName}`);
-      await startJitsi(data.roomName, data.token, data.meetingId, user?.id ?? '');
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Unable to launch room');
-    } finally {
-      setIsBusy(false);
-    }
   }
 
   async function generateQr() {
@@ -406,6 +345,16 @@ export default function App() {
   // Discord's Linked Roles verification URL. Public like the legal pages: the
   // Discord sign-in and the badge write happen inside the page itself.
   if (discordRoute) return <VerifyUserPage client={supabase} session={session} />;
+
+  // Learning resources stay public. The live-room card inside this portal
+  // adds the authenticated Jitsi flow only when a student has a session.
+  if (studentRoute) {
+    return <StudentPortal
+      accessToken={accessToken}
+      user={user ?? (session ? { id: session.user.id, name: session.user.user_metadata.full_name, email: session.user.email } : null)}
+      onSignIn={supabase ? () => { void signInWithGoogle(); } : undefined}
+    />;
+  }
 
   if (!portal) return <RoleSelector onSelect={selectPortal} />;
 
@@ -579,11 +528,11 @@ export default function App() {
             {view === 'overview' && <Overview dashboard={dashboard} canFacilitate={canFacilitate} />}
             {view === 'qr' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Physical attendance</p><h3>Generate one-time check-in</h3><p className="muted">Display this challenge on the facilitator screen. It expires after sixty seconds and can only be redeemed once.</p><input placeholder="Training session UUID" value={sessionId} onChange={(event) => setSessionId(event.target.value)} /><button type="button" onClick={generateQr} disabled={isBusy}>Generate QR challenge</button></div><div className="qr-card">{qrImage ? <><img src={qrImage} alt="Attendance QR code" className="qr-image" /><code>{qrToken}</code></> : <span className="muted">Your active QR challenge will appear here.</span>}</div></section>}
             {view === 'scanner' && <section className="feature-grid"><div className="feature-card"><p className="viewer-kicker">Admin scanner mode</p><h3>Scan facilitator check-ins</h3><p className="muted">Allow camera access to scan a one-time challenge, or use the manual token fallback. Most modern Chromium browsers support camera-based QR decoding; otherwise, use the manual token entry.</p><div className="scanner-frame"><video ref={videoRef} className="scanner-video" muted playsInline /><div id="legacy-daraja-qr-reader" className="scanner-video" /><span>{cameraStatus}</span></div><button type="button" onClick={() => void startCamera()}>Start camera scanner</button><form onSubmit={redeemQr}><input placeholder="Paste QR token" value={scanToken} onChange={(event) => setScanToken(event.target.value)} required /><button type="submit">Record attendance</button></form></div><div className="feature-card"><h3>Scanner safeguards</h3><ul className="check-list"><li>Token expiry is enforced by the API.</li><li>Redeemed tokens cannot be reused.</li><li>Attendance writes are tied to the signed-in user.</li><li>Browsers without BarcodeDetector automatically fall back to manual token entry.</li></ul></div></section>}
-            {view === 'training' && <section className="training-layout"><form className="feature-card" onSubmit={launchRoom}><p className="viewer-kicker">Virtual training room</p><h3>Join a secure Jitsi session</h3><label>Room name<input value={roomName} onChange={(event) => setRoomName(event.target.value)} /></label><label>Display name<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Email<input type="email" value={roomEmail} onChange={(event) => setRoomEmail(event.target.value)} /></label><button type="submit" disabled={isBusy}>{isBusy ? 'Launching…' : 'Launch training room'}</button></form><div className="jitsi-panel" ref={containerRef}><div className="empty-state"><strong>{meeting ? meeting.roomName : 'Meeting preview'}</strong><span>{meeting ? `Jitsi: ${meeting.jitsiDomain}` : 'Launch a room to begin'}</span></div></div></section>}
+            {view === 'training' && user && <TrainingRoom accessToken={accessToken} userId={user.id} defaultName={user.name} email={user.email} />}
           </>
         ) : (
           <>
-            {studentRoute?.kind === 'overview' && (
+            {parseStudentRoute(pathname)?.kind === 'overview' && (
               <section className="overview">
                 <div className="hero-card">
                   <div>
@@ -610,9 +559,9 @@ export default function App() {
                 <DiscordInvite />
               </section>
             )}
-            {studentRoute?.kind === 'hub' && <MentalHealthHub />}
-            {studentRoute?.kind === 'guide' && <GuideReader slug={studentRoute.slug} />}
-            {studentRoute?.kind === 'reach-out' && <ReachOut />}
+            {parseStudentRoute(pathname)?.kind === 'hub' && <MentalHealthHub />}
+            {parseStudentRoute(pathname)?.kind === 'guide' && <GuideReader slug={(parseStudentRoute(pathname) as { kind: 'guide'; slug: string }).slug} />}
+            {parseStudentRoute(pathname)?.kind === 'reach-out' && <ReachOut />}
           </>
         )}
         <AppFooter />
