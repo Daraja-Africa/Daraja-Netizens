@@ -79,6 +79,10 @@ you and skips versions the project already has.
     meeting host's email in every row). Rows whose label matches no member are
     left untouched.
 
+19. `20261125184300_fix_auth_profile_email_handoff.sql` — keeps the temporary
+    roster email non-null while transferring the unique email to the Auth UUID,
+    preserving the roster-only sign-in policy.
+
 Every statement is additive and idempotent: sessions match on
 `(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on
 `alias_key`, and attendance is only inserted when that member has no row for the
