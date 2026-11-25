@@ -291,7 +291,10 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
 .scanner-video { width: 100%; max-height: 230px; border-radius: 12px; object-fit: cover; }
 .check-list { display: grid; gap: 13px; padding-left: 20px; color: var(--muted); line-height: 1.5; }
 .training-layout { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; }
-.jitsi-panel { min-height: 560px; overflow: hidden; border: 1px solid #d8d0c8; border-radius: 20px; background: #2a2420; }
+.jitsi-panel { position: relative; display: flex; flex-direction: column; width: 100%; height: clamp(560px, 76vh, 900px); overflow: hidden; border: 1px solid #d8d0c8; border-radius: 20px; background: #2a2420; }
+.jitsi-mount, .jitsi-mount > iframe { width: 100%; height: 100%; border: 0; }
+.jitsi-mount { flex: 1 1 auto; min-height: 0; }
+.jitsi-connecting-overlay { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; align-content: center; gap: 8px; padding: 28px; color: #fffdf9; text-align: center; background: rgba(42, 36, 32, .82); }
 .empty-state { display: grid; place-items: center; align-content: center; gap: 8px; min-height: 220px; padding: 28px; color: var(--quiet); text-align: center; }
 .training-room-stack, .jitsi-conference, .live-training-section { display: grid; gap: 18px; }
 .room-ledger { align-content: start; }
@@ -315,7 +318,7 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
 .jitsi-connection.connected { background: #dfeee3; color: var(--success); }
 .jitsi-connection.connecting { background: #fbe8d8; color: var(--primary-dark); }
 .jitsi-presence { color: var(--ink); font-variant-numeric: tabular-nums; }
-.jitsi-leave, .jitsi-prejoin > button, .jitsi-recovery button, .live-sign-in-card button, .live-room-form button {
+.jitsi-leave, .jitsi-expand, .jitsi-prejoin > button, .jitsi-recovery button, .live-sign-in-card button, .live-room-form button {
   border: 0;
   border-radius: 10px;
   padding: 9px 13px;
@@ -325,6 +328,9 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
   font-weight: 800;
 }
 .jitsi-leave { background: #8c3c3c; }
+.jitsi-expand { background: var(--ink); }
+.jitsi-full-window { position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100vh; padding: 16px; overflow: auto; border-radius: 0; background: #fffdf9; }
+.jitsi-full-window .jitsi-panel { height: calc(100vh - 92px); border-radius: 0; }
 .jitsi-prejoin, .jitsi-recovery {
   display: grid;
   gap: 14px;

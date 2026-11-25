@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import { apiFetch, requestRoomToken, type RoomTokenResponse } from '../api';
 import JitsiConference from './JitsiConference';
@@ -15,6 +15,13 @@ export default function TrainingRoom({ accessToken, userId, defaultName, email }
   const [status, setStatus] = useState('Choose a scheduled session or create a custom room.');
   const [busy, setBusy] = useState(false);
   const [meeting, setMeeting] = useState<RoomTokenResponse | null>(null);
+
+  const refreshTelemetry = useCallback(() => {
+    if (!accessToken) return;
+    void (apiFetch('/api/v1/telemetry?limit=6', accessToken) as Promise<{ events: TelemetryEvent[] }>)
+      .then((data) => setTelemetry(data.events))
+      .catch(() => undefined);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -95,9 +102,11 @@ export default function TrainingRoom({ accessToken, userId, defaultName, email }
           meetingId={meeting.meetingId}
           sessionId={meeting.sessionId}
           token={meeting.token}
+          requiresJitsiJwt={meeting.requiresJitsiJwt}
           user={{ id: meeting.user?.id ?? userId, name: meeting.user?.name ?? defaultName ?? 'Facilitator', email: meeting.user?.email ?? email ?? 'facilitator@daraja.local' }}
           isModerator={meeting.user?.isModerator}
           jitsiDomain={meeting.jitsiDomain}
+          onTelemetrySent={refreshTelemetry}
         />
       )}
     </section>

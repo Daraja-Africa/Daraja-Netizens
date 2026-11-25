@@ -190,7 +190,7 @@ function LiveTrainingSessions({ accessToken, user, onSignIn }: { accessToken: st
           </form>
           {status && <p className="muted" role="status">{status}</p>}
           {!rooms.length && <p className="muted small">No scheduled room is active yet. You can still enter a room code from your facilitator.</p>}
-          {meeting && <JitsiConference accessToken={accessToken} roomName={meeting.roomName} roomTitle={selectedRoom?.title ?? meeting.roomName} meetingId={meeting.meetingId} sessionId={meeting.sessionId} token={meeting.token} user={{ id: meeting.user?.id ?? user?.id ?? '', name: meeting.user?.name ?? user?.name ?? 'Daraja student', email: meeting.user?.email ?? user?.email ?? '' }} isModerator={meeting.user?.isModerator} jitsiDomain={meeting.jitsiDomain} />}
+          {meeting && <JitsiConference accessToken={accessToken} roomName={meeting.roomName} roomTitle={selectedRoom?.title ?? meeting.roomName} meetingId={meeting.meetingId} sessionId={meeting.sessionId} token={meeting.token} requiresJitsiJwt={meeting.requiresJitsiJwt} user={{ id: meeting.user?.id ?? user?.id ?? '', name: meeting.user?.name ?? user?.name ?? 'Daraja student', email: meeting.user?.email ?? user?.email ?? '' }} isModerator={meeting.user?.isModerator} jitsiDomain={meeting.jitsiDomain} />}
         </>
       )}
     </section>

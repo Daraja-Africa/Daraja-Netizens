@@ -923,6 +923,7 @@ export function createApp(deps: AppDeps = {}) {
       sessionId: sessionId ?? null,
       jitsiDomain: config.jitsiDomain,
       token,
+      requiresJitsiJwt: config.jitsiDomain !== 'meet.jit.si' && !config.jitsiDomain.endsWith('.jit.si'),
       user: { id: userId, name, email, role: user.role, isModerator },
     });
   });

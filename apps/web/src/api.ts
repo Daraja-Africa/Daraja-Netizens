@@ -60,6 +60,7 @@ export type RoomTokenResponse = {
   sessionId: string | null;
   jitsiDomain: string;
   token: string;
+  requiresJitsiJwt: boolean;
   user: { id: string; name: string; email: string; role: string; isModerator: boolean };
 };
 

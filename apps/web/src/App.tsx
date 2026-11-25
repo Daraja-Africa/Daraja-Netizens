@@ -98,7 +98,12 @@ export default function App() {
       });
       return;
     }
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      if (window.location.hash.includes('access_token=')) {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+      }
+    });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
     return () => data.subscription.unsubscribe();
   }, []);

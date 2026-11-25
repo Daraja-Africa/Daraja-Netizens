@@ -31,10 +31,12 @@ export type JitsiConferenceProps = {
   meetingId: string;
   sessionId?: string | null;
   token?: string;
+  requiresJitsiJwt?: boolean;
   user: JitsiConferenceUser;
   isModerator?: boolean;
   jitsiDomain?: string;
   onClosed?: () => void;
+  onTelemetrySent?: (eventType: 'CONFERENCE_JOINED' | 'CONFERENCE_LEFT') => void;
 };
 
 const HEARTBEAT_SECONDS = 30;
@@ -78,10 +80,12 @@ export default function JitsiConference({
   meetingId,
   sessionId,
   token,
+  requiresJitsiJwt = false,
   user,
   isModerator = false,
   jitsiDomain = import.meta.env.VITE_JITSI_DOMAIN ?? 'meet.jit.si',
   onClosed,
+  onTelemetrySent,
 }: JitsiConferenceProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const apiRef = useRef<JitsiApi | null>(null);
@@ -91,7 +95,9 @@ export default function JitsiConference({
   const lastHeartbeatRef = useRef<number | null>(null);
   const finalizedRef = useRef(false);
   const liveRef = useRef(false);
-  const [connection, setConnection] = useState<'idle' | 'connecting' | 'connected' | 'disconnected' | 'failed'>('idle');
+  const conferenceErrorRef = useRef(false);
+  const [status, setStatus] = useState<'prejoin' | 'connecting' | 'connected' | 'error'>('prejoin');
+  const [isFullWindow, setIsFullWindow] = useState(false);
   const [presenceSeconds, setPresenceSeconds] = useState(0);
   const [participants, setParticipants] = useState(1);
   const [preJoinMutedAudio, setPreJoinMutedAudio] = useState(true);
@@ -138,12 +144,12 @@ export default function JitsiConference({
       }).catch(() => undefined);
       void sendJitsiTelemetry(accessToken, {
         eventType: 'CONFERENCE_LEFT', meetingId, userId: user.id, timestamp: leftAt, payload: { reason },
-      }).catch(() => undefined);
+      }).then(() => onTelemetrySent?.('CONFERENCE_LEFT')).catch(() => undefined);
     }
     liveRef.current = false;
-    setConnection('disconnected');
+    setStatus(conferenceErrorRef.current ? 'error' : 'prejoin');
     onClosed?.();
-  }, [accessToken, flushHeartbeat, meetingId, onClosed, stopTimers, user.id]);
+  }, [accessToken, flushHeartbeat, meetingId, onClosed, onTelemetrySent, stopTimers, user.id]);
 
   const inspectPermissions = useCallback(async () => {
     if (!navigator.mediaDevices) {
@@ -173,22 +179,23 @@ export default function JitsiConference({
   }, [stopTimers]);
 
   const startConference = useCallback(async () => {
-    if (!frameRef.current) return;
     setFailure('');
-    setConnection('connecting');
+    setStatus('connecting');
     finalizedRef.current = false;
+    conferenceErrorRef.current = false;
     await inspectPermissions();
     try {
       await loadJitsiScript(jitsiDomain);
       const JitsiMeetExternalAPI = window.JitsiMeetExternalAPI;
       if (!JitsiMeetExternalAPI) throw new Error('Jitsi is unavailable after the connection service loaded.');
+      if (!frameRef.current) throw new Error('The Jitsi room could not be prepared. Please try again.');
       dispose();
       const api = new JitsiMeetExternalAPI(jitsiDomain, {
         roomName,
         parentNode: frameRef.current,
         width: '100%',
         height: '100%',
-        ...(token ? { jwt: token } : {}),
+        ...(requiresJitsiJwt && token ? { jwt: token } : {}),
         userInfo: { displayName: user.name, email: user.email },
         configOverwrite: {
           prejoinConfig: { enabled: false },
@@ -205,11 +212,11 @@ export default function JitsiConference({
         lastHeartbeatRef.current = now;
         finalizedRef.current = false;
         liveRef.current = true;
-        setConnection('connected');
+        setStatus('connected');
         setPresenceSeconds(0);
         void sendJitsiTelemetry(accessToken, {
           eventType: 'CONFERENCE_JOINED', meetingId, userId: user.id, timestamp: now,
-        }).catch(() => undefined);
+        }).then(() => onTelemetrySent?.('CONFERENCE_JOINED')).catch(() => undefined);
         heartbeatRef.current = window.setInterval(() => {
           if (!liveRef.current) return;
           lastHeartbeatRef.current = Date.now();
@@ -234,23 +241,30 @@ export default function JitsiConference({
         if (role === 'moderator') setIsModeratorHere(true);
         void sendJitsiTelemetry(accessToken, { eventType: 'ROLE_CHANGED', meetingId, userId: user.id, timestamp: Date.now(), payload: { ...eventDetails(data), role } }).catch(() => undefined);
       });
-      api.addListener('videoConferenceFailed', (data) => {
+      const handleConferenceError = (data?: JitsiEventPayload) => {
+        if (conferenceErrorRef.current) return;
+        conferenceErrorRef.current = true;
+        flushHeartbeat();
         stopTimers();
         liveRef.current = false;
-        setConnection('failed');
+        setStatus('error');
         setFailure('Jitsi could not connect to this room. Check your connection and try again.');
         void sendJitsiTelemetry(accessToken, { eventType: 'CONFERENCE_FAILED', meetingId, userId: user.id, timestamp: Date.now(), payload: data ?? {} }).catch(() => undefined);
-      });
+      };
+      api.addListener('videoConferenceFailed', handleConferenceError);
+      api.addListener('errorOccurred', handleConferenceError);
       api.addListener('videoConferenceLeft', () => finishConference('left'));
       api.addListener('readyToClose', () => finishConference('closed'));
     } catch (error) {
-      setConnection('failed');
+      stopTimers();
+      liveRef.current = false;
+      setStatus('error');
       setFailure(error instanceof Error ? error.message : 'Unable to start the Jitsi room.');
       void sendJitsiTelemetry(accessToken, {
         eventType: 'CONFERENCE_FAILED', meetingId, userId: user.id, timestamp: Date.now(), payload: { error: error instanceof Error ? error.message : 'Unknown error' },
       }).catch(() => undefined);
     }
-  }, [accessToken, dispose, finishConference, inspectPermissions, jitsiDomain, meetingId, preJoinMutedAudio, preJoinMutedVideo, roomName, sessionId, stopTimers, token, user.email, user.id, user.name]);
+  }, [accessToken, dispose, finishConference, flushHeartbeat, inspectPermissions, jitsiDomain, meetingId, onTelemetrySent, preJoinMutedAudio, preJoinMutedVideo, requiresJitsiJwt, roomName, sessionId, stopTimers, token, user.email, user.id, user.name]);
 
   useEffect(() => {
     void inspectPermissions();
@@ -269,16 +283,17 @@ export default function JitsiConference({
   }, [dispose, finishConference, flushHeartbeat]);
 
   return (
-    <section className="jitsi-conference" aria-label={`${roomTitle} video conference`}>
+    <section className={`jitsi-conference${isFullWindow ? ' jitsi-full-window' : ''}`} aria-label={`${roomTitle} video conference`}>
       <div className="jitsi-telemetry-bar">
         <div><span className="jitsi-label">Room</span><strong>{roomTitle}</strong></div>
-        <span className={`jitsi-connection ${connection}`}>{connection === 'connected' ? 'Connected' : connection === 'connecting' ? 'Connecting' : 'Disconnected'}</span>
+        <span className={`jitsi-connection ${status}`}>{status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting' : status === 'error' ? 'Connection error' : 'Ready to join'}</span>
         <span>{participants} {participants === 1 ? 'participant' : 'participants'}</span>
         <span className="jitsi-presence">{formatDuration(presenceSeconds)}</span>
-        <button type="button" className="jitsi-leave" onClick={() => apiRef.current?.executeCommand('hangup')} disabled={connection !== 'connected'}>Leave room</button>
+        <button type="button" className="jitsi-expand" onClick={() => setIsFullWindow((expanded) => !expanded)}>{isFullWindow ? 'Exit Full Window' : 'Expand Window'}</button>
+        <button type="button" className="jitsi-leave" onClick={() => apiRef.current?.executeCommand('hangup')} disabled={status !== 'connected'}>Leave room</button>
       </div>
 
-      {connection === 'idle' && (
+      {status === 'prejoin' && (
         <div className="jitsi-prejoin">
           <div>
             <p className="viewer-kicker">Ready to join</p>
@@ -296,10 +311,10 @@ export default function JitsiConference({
       )}
 
       {failure && <div className="jitsi-recovery" role="alert"><strong>Connection interrupted</strong><span>{failure}</span><button type="button" onClick={() => void startConference()}>Retry Connection</button></div>}
-      <div ref={frameRef} className="jitsi-panel" aria-live="polite">
-        {connection === 'connecting' && <div className="empty-state"><strong>Connecting to {roomName}</strong><span>Preparing your secure video room…</span></div>}
-        {connection === 'disconnected' && !failure && <div className="empty-state"><strong>You left the room</strong><span>Your verified presence has been recorded.</span></div>}
-      </div>
+      {status !== 'prejoin' && <div className="jitsi-panel" aria-live="polite">
+        <div ref={frameRef} className="jitsi-mount" />
+        {status === 'connecting' && <div className="jitsi-connecting-overlay"><strong>Connecting to {roomName}...</strong><span>Preparing your secure video room...</span></div>}
+      </div>}
     </section>
   );
 }

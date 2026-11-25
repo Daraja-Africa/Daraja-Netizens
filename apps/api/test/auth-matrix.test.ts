@@ -161,6 +161,7 @@ test('a host-only account does not receive facilitator routes', async () => {
 test('room tokens use the authenticated role and identity', async () => {
   const result = await call('POST', '/api/v1/rooms/token', { token: 'student-token', body: roomPayload });
   assert.equal(result.status, 200);
+  assert.equal(result.body?.requiresJitsiJwt, false);
   assert.equal((result.body?.user as { id?: string; isModerator?: boolean }).id, STUDENT_ID);
   assert.equal((result.body?.user as { isModerator?: boolean }).isModerator, false);
   const studentClaims = jwt.decode(String(result.body?.token)) as { context?: { user?: { affiliation?: string; moderator?: boolean } } };
