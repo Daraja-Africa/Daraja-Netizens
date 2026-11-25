@@ -20,7 +20,7 @@ import MentalHealthHub from './student/MentalHealthHub';
 import ReachOut from './student/ReachOut';
 import StudentPortal from './student/StudentPortal';
 import TrainingRoom from './staff/TrainingRoom';
-import { detectOAuthWebView } from './authEnvironment';
+import CredentialSignIn from './staff/CredentialSignIn';
 
 type ModuleKey = 'module1' | 'student';
 type Module1Role = 'admin' | 'facilitator';
@@ -54,8 +54,6 @@ const studentNav: Array<{ key: 'overview' | 'hub' | 'reach-out'; label: string; 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [accessNotice, setAccessNotice] = useState('');
   const [portal, setPortal] = useState<Portal | null>(readStoredPortal);
@@ -71,6 +69,7 @@ export default function App() {
   const [scanToken, setScanToken] = useState('');
   const [cameraStatus, setCameraStatus] = useState('Camera is off');
   const [isBusy, setIsBusy] = useState(false);
+  const [studentSignIn, setStudentSignIn] = useState(false);
   const staffLandingApplied = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -181,49 +180,6 @@ export default function App() {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     void html5ScannerRef.current?.stop().catch(() => undefined);
   }, []);
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    if (!supabase) return;
-    setAuthError('');
-    const result = await supabase.auth.signInWithPassword({ email, password });
-    if (result.error) setAuthError(result.error.message);
-  }
-
-  async function signInWithGoogle() {
-    if (!supabase) return;
-    setAuthError('');
-    setAccessNotice('');
-    const webView = detectOAuthWebView(navigator.userAgent);
-    if (webView.embedded) {
-      setAuthError(webView.instruction);
-      return;
-    }
-    const result = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-    if (result.error) setAuthError(result.error.message);
-  }
-
-  // Same flow as Google: Supabase returns to this origin with a session, and the
-  // existing /api/v1/auth/me hydration (including 403 NOT_ALLOWLISTED sign-out)
-  // decides whether the account may use the facilitator workspace.
-  async function signInWithDiscord() {
-    if (!supabase) return;
-    setAuthError('');
-    setAccessNotice('');
-    const webView = detectOAuthWebView(navigator.userAgent);
-    if (webView.embedded) {
-      setAuthError(webView.instruction);
-      return;
-    }
-    const result = await supabase.auth.signInWithOAuth({
-      provider: 'discord',
-      options: { redirectTo: window.location.origin },
-    });
-    if (result.error) setAuthError(result.error.message);
-  }
 
   async function generateQr() {
     if (!sessionId) return setStatus('Enter a training session ID first');
@@ -349,10 +305,18 @@ export default function App() {
   // Learning resources stay public. The live-room card inside this portal
   // adds the authenticated Jitsi flow only when a student has a session.
   if (studentRoute) {
+    if (studentSignIn && supabase && !session) {
+      return <CredentialSignIn
+        client={supabase}
+        heading="Student sign in"
+        description="Sign in with your Daraja student account to join live training and verify attendance."
+        onBack={() => setStudentSignIn(false)}
+      />;
+    }
     return <StudentPortal
       accessToken={accessToken}
       user={user ?? (session ? { id: session.user.id, name: session.user.user_metadata.full_name, email: session.user.email } : null)}
-      onSignIn={supabase ? () => { void signInWithGoogle(); } : undefined}
+      onSignIn={supabase ? () => setStudentSignIn(true) : undefined}
     />;
   }
 
@@ -361,35 +325,13 @@ export default function App() {
   const showModule1Auth = module === 'module1' && !user && supabase;
 
   if (showModule1Auth) {
-    return (
-      <main className="auth-shell">
-        <div className="auth-stack">
-          <form className="auth-card" onSubmit={signIn}>
-            <img className="brand-badge" src="/daraja-logo.png" alt="" />
-            <p className="eyebrow">Daraja Netizens</p>
-            <h1>Module 1 access</h1>
-            <p className="muted">Sign in to access the facilitator and admin training workspace.</p>
-            {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
-            {detectOAuthWebView(navigator.userAgent).embedded && (
-              <p className="notice-banner" role="alert">
-                {(detectOAuthWebView(navigator.userAgent) as { instruction: string }).instruction}
-              </p>
-            )}
-            <div className="oauth-buttons">
-              <button type="button" className="google-button" onClick={() => void signInWithGoogle()}>Sign in with Google</button>
-              <button type="button" className="discord-button" onClick={() => void signInWithDiscord()}>Sign in with Discord</button>
-            </div>
-            <p className="auth-divider">or use your Daraja email</p>
-            <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-            <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-            {authError && <p className="error-text">{authError}</p>}
-            <button type="submit">Sign in</button>
-            <button type="button" className="ghost-button" onClick={switchRole}>Switch role</button>
-          </form>
-          <AppFooter />
-        </div>
-      </main>
-    );
+    return <CredentialSignIn
+      client={supabase}
+      heading="Module 1 access"
+      description="Sign in to access the facilitator and admin training workspace."
+      accessNotice={accessNotice}
+      onBack={switchRole}
+    />;
   }
 
   return (

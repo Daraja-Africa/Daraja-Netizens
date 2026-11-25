@@ -37,6 +37,22 @@ export async function apiFetch(path: string, accessToken?: string | null, option
   return response.json();
 }
 
+export type FirstLoginStatus =
+  | { status: 'not_allowlisted' }
+  | { status: 'needs_password' | 'has_password'; fullName?: string };
+
+export function checkFirstLoginStatus(email: string) {
+  return apiFetch('/api/v1/auth/first-login/check', undefined, {
+    method: 'POST', body: JSON.stringify({ email }),
+  }) as Promise<FirstLoginStatus>;
+}
+
+export function setupFirstLoginPassword(email: string, password: string) {
+  return apiFetch('/api/v1/auth/first-login/setup', undefined, {
+    method: 'POST', body: JSON.stringify({ email, password }),
+  }) as Promise<{ ok: true; email: string }>;
+}
+
 export type RoomTokenRequest = { roomName: string; title?: string; sessionId?: string };
 export type RoomTokenResponse = {
   roomName: string;

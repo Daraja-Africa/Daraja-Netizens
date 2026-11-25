@@ -21,6 +21,8 @@ import {
 } from './admin.js';
 import {
   checkSupabaseReadiness,
+  checkMemberPasswordStatus,
+  completeFirstLoginPasswordSetup,
   createMeeting,
   createQrChallenge,
   createStudentReachOutRequest,
@@ -45,6 +47,7 @@ import {
   supabaseConfigured,
   updateReachOutNote,
   upsertAttendance,
+  FirstLoginSetupError,
 } from './supabase.js';
 import {
   studentGuides,
@@ -90,11 +93,15 @@ export type AppDeps = {
   /** Swappable so the auth matrix test can drive every protected route. */
   resolveIdentity?: IdentityResolver;
   logger?: Logger;
+  checkMemberPasswordStatus?: typeof checkMemberPasswordStatus;
+  completeFirstLoginPasswordSetup?: typeof completeFirstLoginPasswordSetup;
 };
 
 export function createApp(deps: AppDeps = {}) {
   const baseLog = deps.logger ?? rootLogger;
   const requireAuth = createAuthGuard(deps.resolveIdentity ?? resolveIdentityFromToken);
+  const checkPasswordStatus = deps.checkMemberPasswordStatus ?? checkMemberPasswordStatus;
+  const completePasswordSetup = deps.completeFirstLoginPasswordSetup ?? completeFirstLoginPasswordSetup;
 
   const app = express();
   // Bounded, self-expiring write counter. The previous Map grew without limit
@@ -408,6 +415,33 @@ export function createApp(deps: AppDeps = {}) {
     email: z.string().email().optional(),
     sessionId: z.string().uuid().optional(),
     title: z.string().min(1).max(160).optional(),
+  });
+
+  const firstLoginCheckSchema = z.object({ email: z.string().email() });
+  const firstLoginSetupSchema = z.object({ email: z.string().email(), password: z.string().min(8).max(128) });
+
+  app.post('/api/v1/auth/first-login/check', async (req, res) => {
+    const parsed = firstLoginCheckSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid email address' });
+    try {
+      const result = await checkPasswordStatus(parsed.data.email);
+      return res.json(result.status === 'not_allowlisted' ? result : { status: result.status, fullName: result.fullName });
+    } catch (error) {
+      (req as AuthenticatedRequest).log?.error('auth.first_login_check_failed', { error });
+      return res.status(503).json({ error: 'Password setup is unavailable' });
+    }
+  });
+
+  app.post('/api/v1/auth/first-login/setup', async (req, res) => {
+    const parsed = firstLoginSetupSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid password setup details' });
+    try {
+      return res.json(await completePasswordSetup(parsed.data.email, parsed.data.password));
+    } catch (error) {
+      if (error instanceof FirstLoginSetupError) return res.status(error.statusCode).json({ error: error.message });
+      (req as AuthenticatedRequest).log?.error('auth.first_login_setup_failed', { error });
+      return res.status(503).json({ error: 'Password setup is unavailable' });
+    }
   });
 
   const attendanceSchema = z.object({

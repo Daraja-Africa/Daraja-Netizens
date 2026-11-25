@@ -359,6 +359,27 @@ code { max-width: 100%; overflow-wrap: anywhere; color: var(--primary-dark); fon
 .auth-shell { display: grid; place-items: center; min-height: 100vh; padding: 20px; background: var(--background); }
 .auth-card { display: grid; gap: 16px; width: min(100%, 420px); padding: 30px; border-radius: 24px; }
 .auth-card h1 { font-size: 2.5rem; }
+.auth-secondary-action {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary-dark);
+  font-size: .82rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-secondary-action:hover { color: var(--ink); background: transparent; }
+.auth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(42, 36, 32, .45);
+}
+.auth-modal { box-shadow: 0 18px 48px rgba(42, 36, 32, .28); }
 .error-text { color: #9a2c20; font-size: .82rem; }
 .notice-banner {
   display: block;
@@ -1043,13 +1064,6 @@ textarea:focus { outline: none; border-color: var(--primary-strong); box-shadow:
   .verify-button { width: 100%; }
 }
 
-/* ── Discord sign-in and community invite ────────────────────────────────── */
-.oauth-buttons { display: grid; gap: 10px; }
-/* Deep umber rather than Discord's blue, so the second option still belongs to
-   the warm editorial palette while staying visually distinct from Google. */
-.auth-card .discord-button { background: #3a3230; color: #fff; }
-.auth-card .discord-button:hover { background: #2a2420; }
-.auth-card .discord-button:active { transform: translateY(1px); }
 .auth-stack { display: grid; gap: 18px; width: min(100%, 420px); }
 
 .app-footer {

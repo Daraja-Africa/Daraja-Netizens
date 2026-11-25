@@ -15,6 +15,79 @@ export function getSupabaseClient() {
   return client;
 }
 
+export type MemberPasswordStatus =
+  | { status: 'not_allowlisted' }
+  | { status: 'needs_password' | 'has_password'; email: string; fullName: string; role: string };
+
+export class FirstLoginSetupError extends Error {
+  constructor(readonly statusCode: 403 | 409, message: string) {
+    super(message);
+    this.name = 'FirstLoginSetupError';
+  }
+}
+
+type PasswordStatusRow = {
+  email: string;
+  full_name: string | null;
+  role: string | null;
+  status: string | null;
+  auth_user_id: string | null;
+  has_password: boolean | null;
+};
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+async function readMemberPasswordStatus(email: string): Promise<PasswordStatusRow | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('Supabase is not configured');
+  const { data, error } = await supabase.rpc('get_member_password_status', { p_email: normalizeEmail(email) });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row as PasswordStatusRow | null) ?? null;
+}
+
+/** Checks a roster member without exposing a password hash or Auth record. */
+export async function checkMemberPasswordStatus(email: string): Promise<MemberPasswordStatus> {
+  const row = await readMemberPasswordStatus(email);
+  if (!row || row.status !== 'active') return { status: 'not_allowlisted' };
+  const identity = {
+    email: normalizeEmail(row.email),
+    fullName: row.full_name?.trim() || normalizeEmail(row.email),
+    role: row.role ?? 'facilitator',
+  };
+  return row.has_password ? { status: 'has_password', ...identity } : { status: 'needs_password', ...identity };
+}
+
+/** Provisions only the first password; existing passwords are never overwritten here. */
+export async function completeFirstLoginPasswordSetup(email: string, password: string) {
+  const row = await readMemberPasswordStatus(email);
+  if (!row || row.status !== 'active') {
+    throw new FirstLoginSetupError(403, 'This email address is not registered on the Daraja allowlist.');
+  }
+  if (row.has_password) {
+    throw new FirstLoginSetupError(409, 'A password is already configured for this account. Sign in with your password.');
+  }
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('Supabase is not configured');
+  const normalizedEmail = normalizeEmail(row.email);
+  const fullName = row.full_name?.trim() || normalizedEmail;
+  if (row.auth_user_id) {
+    const { error } = await supabase.auth.admin.updateUserById(row.auth_user_id, { password, email_confirm: true });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
+    });
+    if (error) throw error;
+  }
+  return { ok: true, email: normalizedEmail };
+}
+
 export async function persistTelemetryRecord(payload: Record<string, unknown>) {
   const supabase = getSupabaseClient();
   if (!supabase) return { ok: true, mode: 'memory' };
