@@ -21,6 +21,7 @@ import ReachOut from './student/ReachOut';
 import StudentPortal from './student/StudentPortal';
 import TrainingRoom from './staff/TrainingRoom';
 import CredentialSignIn from './staff/CredentialSignIn';
+import { detectOAuthWebView } from './authEnvironment';
 
 type ModuleKey = 'module1' | 'student';
 type Module1Role = 'admin' | 'facilitator';
@@ -181,6 +182,28 @@ export default function App() {
     void html5ScannerRef.current?.stop().catch(() => undefined);
   }, []);
 
+  async function signInWithGoogle() {
+    if (!supabase) return 'Sign-in is unavailable until Supabase is configured.';
+    const webView = detectOAuthWebView(navigator.userAgent);
+    if (webView.embedded) return webView.instruction;
+    const result = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    return result.error?.message;
+  }
+
+  async function signInWithDiscord() {
+    if (!supabase) return 'Sign-in is unavailable until Supabase is configured.';
+    const webView = detectOAuthWebView(navigator.userAgent);
+    if (webView.embedded) return webView.instruction;
+    const result = await supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { redirectTo: window.location.origin },
+    });
+    return result.error?.message;
+  }
+
   async function generateQr() {
     if (!sessionId) return setStatus('Enter a training session ID first');
     setIsBusy(true);
@@ -310,6 +333,8 @@ export default function App() {
         client={supabase}
         heading="Student sign in"
         description="Sign in with your Daraja student account to join live training and verify attendance."
+        onGoogle={signInWithGoogle}
+        onDiscord={signInWithDiscord}
         onBack={() => setStudentSignIn(false)}
       />;
     }
@@ -330,7 +355,10 @@ export default function App() {
       heading="Module 1 access"
       description="Sign in to access the facilitator and admin training workspace."
       accessNotice={accessNotice}
+      onGoogle={signInWithGoogle}
+      onDiscord={signInWithDiscord}
       onBack={switchRole}
+      backLabel="Switch role"
     />;
   }
 

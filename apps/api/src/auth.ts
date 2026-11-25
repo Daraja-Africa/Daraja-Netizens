@@ -17,7 +17,7 @@ export type AuthenticatedRequest = Request & {
   log?: Logger;
 };
 
-const NOT_ALLOWLISTED_MESSAGE = 'Your email address is not registered on the Daraja allowlist.';
+const NOT_ALLOWLISTED_MESSAGE = 'Your account is not registered on the Daraja allowlist.';
 
 /**
  * The demo identity is a local-development convenience, never a default.

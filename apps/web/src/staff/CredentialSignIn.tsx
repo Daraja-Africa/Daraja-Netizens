@@ -8,7 +8,10 @@ type CredentialSignInProps = {
   heading?: string;
   description?: string;
   accessNotice?: string;
+  onGoogle?: () => Promise<string | undefined>;
+  onDiscord?: () => Promise<string | undefined>;
   onBack?: () => void;
+  backLabel?: string;
 };
 
 export default function CredentialSignIn({
@@ -16,7 +19,10 @@ export default function CredentialSignIn({
   heading = 'Sign in',
   description = 'Use your Daraja email and password to continue.',
   accessNotice = '',
+  onGoogle,
+  onDiscord,
   onBack,
+  backLabel = 'Back',
 }: CredentialSignInProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -61,6 +67,18 @@ export default function CredentialSignIn({
     }
   }
 
+  async function signInWith(provider: (() => Promise<string | undefined>) | undefined) {
+    if (!provider) return;
+    setError('');
+    setBusy(true);
+    try {
+      const providerError = await provider();
+      if (providerError) setError(providerError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function savePassword(event: FormEvent) {
     event.preventDefault();
     if (!setup) return;
@@ -88,6 +106,9 @@ export default function CredentialSignIn({
         <h1>{heading}</h1>
         <p className="muted">{description}</p>
         {accessNotice && <p className="notice-banner" role="alert">{accessNotice}</p>}
+        {onGoogle && <button type="button" className="google-button" disabled={busy} onClick={() => void signInWith(onGoogle)}>Sign in with Google</button>}
+        {onDiscord && <button type="button" className="discord-button" disabled={busy} onClick={() => void signInWith(onDiscord)}>Sign in with Discord</button>}
+        {(onGoogle || onDiscord) && <p className="auth-divider">Or use your Daraja email</p>}
         <label>Email<input type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} required /></label>
         <label>Password<input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} required /></label>
         {error && <p className="error-text" role="alert">{error}</p>}
@@ -95,7 +116,7 @@ export default function CredentialSignIn({
         <button type="button" className="auth-secondary-action" disabled={busy} onClick={() => void checkFirstLogin()}>
           First time signing in? Set up your password
         </button>
-        {onBack && <button type="button" className="ghost-button" onClick={onBack}>Back</button>}
+        {onBack && <button type="button" className="ghost-button" onClick={onBack}>{backLabel}</button>}
       </form>
       {setup && (
         <div className="auth-modal-backdrop" role="presentation">
