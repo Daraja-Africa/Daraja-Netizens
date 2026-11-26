@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import XLSX from 'xlsx';
 
-import { resolveEntries, roleForRosterEmail, type ParsedLesson, type RosterMember } from '../src/memberImport.js';
+import {
+  parseMemberWorkbook,
+  resolveEntries,
+  roleForRosterEmail,
+  type ParsedLesson,
+  type RosterMember,
+} from '../src/memberImport.js';
 
 const roster: RosterMember[] = [
   { id: 'miguel', email: 'miguellewis575@gmail.com', full_name: 'Miguel Karomo' },
@@ -17,6 +24,33 @@ function lesson(entries: ParsedLesson['entries']): ParsedLesson {
     entries,
   };
 }
+
+test('legacy pioneer and numbered cohort headings import as Cohort 1', () => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ['NAME', 'EMAIL', 'ID No.', 'PHONE'],
+      ['Alice Example', 'alice@example.com', '123', '0712345678'],
+      ['Bob Example', 'bob@example.com', '456', '0798765432'],
+    ]),
+    'Members'
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ['PIONEER GROUP'],
+      ['Alice Example'],
+      ['COHORT 3'],
+      ['Bob Example'],
+    ]),
+    'Cohorts'
+  );
+
+  const parsed = parseMemberWorkbook(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }));
+
+  assert.deepEqual(parsed.members.map((member) => member.cohort), ['Cohort 1', 'Cohort 1']);
+});
 
 test('a repeated host email does not override the attendee display name', () => {
   const resolved = resolveEntries(
