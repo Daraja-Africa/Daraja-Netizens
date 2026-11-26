@@ -8,7 +8,7 @@ normalized into the app, and how to apply the migrations that carry them.
 | Source | Becomes |
 | --- | --- |
 | `Untitledspreadsheet.xlsx` Sheet 1 (44 rows) | 43 rows in `public.users` tagged `source = 'daraja-member-roster'`, with `national_id`, `phone`, `member_code` |
-| `Untitledspreadsheet.xlsx` Sheet 2 | `cohort` on each member: 29 in **Pioneer Group**, 14 in **Cohort 1** |
+| `Untitledspreadsheet.xlsx` Sheet 2 | `cohort = 'Cohort 1'` for all 43 members (legacy group headings are normalized) |
 | Lesson documents 1–4 | 4 `training_sessions` (completed, online, required for training) plus the `meetings` row for each Google Meet code |
 | Attendance names | 105 `attendance_logs` rows (`source = 'historical_import'`), one per member per lesson |
 | Display names like “Betty”, “Zei Tunie” | 33 `member_aliases` rows, reused automatically by later imports |
@@ -82,6 +82,8 @@ you and skips versions the project already has.
 19. `20261125184300_fix_auth_profile_email_handoff.sql` — keeps the temporary
     roster email non-null while transferring the unique email to the Auth UUID,
     preserving the roster-only sign-in policy.
+20. `20261126000000_standardize_member_cohort.sql` — sets every existing roster
+    member or cohort-assigned user to `Cohort 1`.
 
 Every statement is additive and idempotent: sessions match on
 `(title, scheduled_at)`, meetings on `room_key`, members on `email`, aliases on
@@ -108,18 +110,17 @@ npx supabase db push --db-url "postgresql://postgres:<db-password>@db.<project-r
 New project: run every file in the list above in order.
 
 Existing project (the linked one): run only the migrations it is missing, in
-order — 11–13 for the roster and lesson data, then 14 for the sign-in sync.
+order. For a database that already has the roster and sign-in migrations, apply
+migration 20 to standardize existing cohort assignments:
 
 ```bash
-for f in supabase/migrations/20261117120000_attendance_import_schema.sql \
-         supabase/migrations/20261117120100_seed_member_roster.sql \
-         supabase/migrations/20261117120200_seed_lesson_attendance.sql \
-         supabase/migrations/20261117120300_sync_auth_users_to_seeded_profiles.sql; do
-  psql "postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres" -v ON_ERROR_STOP=1 -f "$f"
-done
+psql "postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5432/postgres" \
+  -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/20261126000000_standardize_member_cohort.sql
 ```
 
-In the dashboard SQL editor, paste and run each file in the same order, waiting
+For a database missing earlier migrations, apply those first in the order above.
+In the dashboard SQL editor, paste and run each missing file in order, waiting
 for each to finish before starting the next.
 
 ### Verify
@@ -127,7 +128,7 @@ for each to finish before starting the next.
 ```sql
 select count(*) from public.users where source = 'daraja-member-roster';            -- 43
 select count(*) from public.users where lower(email) = 'fatmawebbo@gmail.com';      -- 0
-select cohort, count(*) from public.users where member_code is not null group by 1; -- Pioneer Group 29, Cohort 1 14
+select cohort, count(*) from public.users where member_code is not null group by 1; -- Cohort 1 43
 select title, to_char(scheduled_at, 'YYYY-MM-DD') from public.training_sessions order by scheduled_at; -- 4 lessons
 select s.title, count(*)
   from public.attendance_logs a

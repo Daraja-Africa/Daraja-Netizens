@@ -173,7 +173,7 @@ const cohortSheetSpellings: Record<string, string> = {
 
 /**
  * Sheet 2 of the roster workbook groups members under a "PIONEER GROUP" or
- * "COHORT n" heading. Returns normalized name -> cohort label.
+ * "COHORT n" heading. All headings map to the current "Cohort 1" label.
  */
 function readCohorts(sheet: XLSX.WorkSheet | undefined): Map<string, string> {
   const cohorts = new Map<string, string>();
@@ -183,12 +183,11 @@ function readCohorts(sheet: XLSX.WorkSheet | undefined): Map<string, string> {
     const value = displayText(row[0]);
     if (!value) continue;
     if (/^pioneer/i.test(value)) {
-      current = 'Pioneer Group';
+      current = 'Cohort 1';
       continue;
     }
-    const cohortMatch = value.match(/^cohort\s*(\d+)/i);
-    if (cohortMatch) {
-      current = `Cohort ${cohortMatch[1]}`;
+    if (/^cohort\s*\d+/i.test(value)) {
+      current = 'Cohort 1';
       continue;
     }
     if (current) cohorts.set(normalizeKey(value), current);
